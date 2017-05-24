@@ -1,0 +1,13 @@
+﻿  vezba9.c
+vezba9.c(161): warning C4133: 'function': incompatible types - from 'ex_udp_datagram *' to 'const u_char *'
+vezba9.c(35): warning C4101: 'packet': unreferenced local variable
+vezba9.c(31): warning C4101: 'sentBytes': unreferenced local variable
+vezba9.obj : error LNK2019: unresolved external symbol _pcap_open_live referenced in function _main
+vezba9.obj : error LNK2019: unresolved external symbol _pcap_close referenced in function _main
+vezba9.obj : error LNK2019: unresolved external symbol _pcap_sendpacket referenced in function _main
+vezba9.obj : error LNK2019: unresolved external symbol _pcap_datalink referenced in function _main
+vezba9.obj : error LNK2019: unresolved external symbol _pcap_findalldevs referenced in function _main
+vezba9.obj : error LNK2019: unresolved external symbol _pcap_sendqueue_alloc referenced in function _main
+vezba9.obj : error LNK2019: unresolved external symbol _pcap_sendqueue_destroy referenced in function _main
+vezba9.obj : error LNK2019: unresolved external symbol _pcap_sendqueue_queue referenced in function _packet_handler
+.\Release\Project.exe : fatal error LNK1120: 8 unresolved externals

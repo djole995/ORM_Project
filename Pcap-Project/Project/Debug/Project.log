@@ -1,0 +1,6 @@
+﻿  vezba9.cpp
+c:\users\milan\documents\visual studio 2017\projects\orm_projekt\pcap-project\project\vezba9.cpp(36): warning C4101: 'packet': unreferenced local variable
+c:\users\milan\documents\visual studio 2017\projects\orm_projekt\pcap-project\project\vezba9.cpp(32): warning C4101: 'sentBytes': unreferenced local variable
+vezba9.obj : warning LNK4075: ignoring '/EDITANDCONTINUE' due to '/INCREMENTAL:NO' specification
+  Project.vcxproj -> C:\Users\Milan\Documents\Visual Studio 2017\Projects\ORM_Projekt\Pcap-Project\Project\.\Debug\Project.exe
+  Project.vcxproj -> .\Debug\Project.pdb (Full PDB)
