@@ -130,6 +130,20 @@ int main()
 	ex_udp_d->iph->src_addr[2] = 0;
 	ex_udp_d->iph->src_addr[3] = 20;
 
+	unsigned int sum = 0;
+	int pom = 0;
+	int ofset = 2;
+	unsigned short *pomocni;
+	for (int i = 0; i < 9; i++) {
+		pomocni =(unsigned short*) ex_udp_d->iph + i*ofset;
+		sum += *pomocni;
+	}
+
+	int firstShort = 0xf000 & sum;
+	int lastShort = 0x0fff & sum;
+
+	pom = firstShort + lastShort;
+	sum = ~pom;
 
 	int tmp = ntohs(ex_udp_d->uh->datagram_length) - sizeof(udp_header);
 	*(ex_udp_d->seq_number) = 0;
