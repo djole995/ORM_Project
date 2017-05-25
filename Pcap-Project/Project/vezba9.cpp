@@ -18,6 +18,9 @@
 
 #include <pcap.h>
 #include "protocol_headers.h"
+#include <vector>
+
+using namespace std;
 
 void packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header, const unsigned char* packet_data);
 /* Read recorded udp datagram. */
@@ -27,6 +30,12 @@ void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data
 /* device_handle_out - output device (wi-fi or ethernet adapter). */
 pcap_t* device_handle_in, *device_handle_out;
 
+unsigned char source_eth_addr[6] = {0x78, 0x0c, 0xb8, 0xf7, 0x71, 0xa0};
+unsigned char dest_eth_addr[6] = {0x2c, 0xd0, 0x5a, 0x90, 0xba, 0x9a};
+
+unsigned char source_ip_addr[4] = {10, 81, 2, 48};
+unsigned char dest_ip_addr[4] = { 10, 81, 2, 99};
+
 int main()
 {
     int i=0;
@@ -35,7 +44,6 @@ int main()
 	pcap_if_t* devices;
 	pcap_if_t* device;
 	char error_buffer [PCAP_ERRBUF_SIZE];
-	unsigned char packet[256];
 	struct pcap_pkthdr* packet_header;
 	unsigned char* packet_data;
 	
@@ -98,37 +106,18 @@ int main()
 	initiallize(&packet_header, &packet_data);
 
 	ex_udp_datagram *ex_udp_d = new ex_udp_datagram(packet_header, packet_data);
+	/* Setting source and dest eth address.*/
+	for (int i = 0; i < 6; i++)
+	{
+		ex_udp_d->eh->src_address[i] = source_eth_addr[i];
+		ex_udp_d->eh->dest_address[i] = dest_eth_addr[i];
+	}
 
-	ex_udp_d->eh->src_address[0] = 0x78;
-	ex_udp_d->eh->src_address[1] = 0x0c;
-	ex_udp_d->eh->src_address[2] = 0xb8;
-	ex_udp_d->eh->src_address[3] = 0xf7;
-	ex_udp_d->eh->src_address[4] = 0x71;
-	ex_udp_d->eh->src_address[5] = 0xa0;
-
-	ex_udp_d->eh->dest_address[0] = 0x2c;
-	ex_udp_d->eh->dest_address[1] = 0xd0;
-	ex_udp_d->eh->dest_address[2] = 0x5a;
-	ex_udp_d->eh->dest_address[3] = 0x90;
-	ex_udp_d->eh->dest_address[4] = 0xba;
-	ex_udp_d->eh->dest_address[5] = 0x9a;
-
-	/*ex_udp_d->eh->dest_address[0] = 0x90;
-	ex_udp_d->eh->dest_address[1] = 0xcd;
-	ex_udp_d->eh->dest_address[2] = 0xb6;
-	ex_udp_d->eh->dest_address[3] = 0x2c;
-	ex_udp_d->eh->dest_address[4] = 0x40;
-	ex_udp_d->eh->dest_address[5] = 0x39;*/
-
-	ex_udp_d->iph->dst_addr[0] = 192;
-	ex_udp_d->iph->dst_addr[1] = 168;
-	ex_udp_d->iph->dst_addr[2] = 0;
-	ex_udp_d->iph->dst_addr[3] = 10;
-
-	ex_udp_d->iph->src_addr[0] = 192;
-	ex_udp_d->iph->src_addr[1] = 168;
-	ex_udp_d->iph->src_addr[2] = 0;
-	ex_udp_d->iph->src_addr[3] = 20;
+	for (int i = 0; i < 4; i++)
+	{
+		ex_udp_d->iph->src_addr[i] = source_ip_addr[i];
+		ex_udp_d->iph->dst_addr[i] = dest_ip_addr[i];
+	}
 
 	unsigned int sum = 0;
 	int tmp2 = 0;
@@ -148,13 +137,22 @@ int main()
 	int tmp = ntohs(ex_udp_d->uh->datagram_length) - sizeof(udp_header);
 	*(ex_udp_d->seq_number) = 0;
 
+	/* Sending block of */
 	for (int i = 0; i < 100; i++)
 	{
 		pcap_sendpacket(device_handle_out, packet_data, packet_header->len);
 		*(ex_udp_d->seq_number) += 1;
 	}
+
+	/*Waiting for ACK for every sent packet.*/
+	while (pcap_next_ex(device_handle_out, &packet_header, (const u_char**)&packet_data) != 0)
+		;
+
+
 	
 	pcap_close(device_handle_out);
+
+	
 
 	return 0;
 }
