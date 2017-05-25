@@ -106,24 +106,24 @@ int main()
 	ex_udp_d->eh->src_address[4] = 0x71;
 	ex_udp_d->eh->src_address[5] = 0xa0;
 
-	/*ex_udp_d->eh->dest_address[0] = 0x2c;
+	ex_udp_d->eh->dest_address[0] = 0x2c;
 	ex_udp_d->eh->dest_address[1] = 0xd0;
 	ex_udp_d->eh->dest_address[2] = 0x5a;
 	ex_udp_d->eh->dest_address[3] = 0x90;
 	ex_udp_d->eh->dest_address[4] = 0xba;
-	ex_udp_d->eh->dest_address[5] = 0x9a;*/
+	ex_udp_d->eh->dest_address[5] = 0x9a;
 
-	ex_udp_d->eh->dest_address[0] = 0x90;
+	/*ex_udp_d->eh->dest_address[0] = 0x90;
 	ex_udp_d->eh->dest_address[1] = 0xcd;
 	ex_udp_d->eh->dest_address[2] = 0xb6;
 	ex_udp_d->eh->dest_address[3] = 0x2c;
 	ex_udp_d->eh->dest_address[4] = 0x40;
-	ex_udp_d->eh->dest_address[5] = 0x39;
+	ex_udp_d->eh->dest_address[5] = 0x39;*/
 
 	ex_udp_d->iph->dst_addr[0] = 192;
 	ex_udp_d->iph->dst_addr[1] = 168;
 	ex_udp_d->iph->dst_addr[2] = 0;
-	ex_udp_d->iph->dst_addr[3] = 22;
+	ex_udp_d->iph->dst_addr[3] = 10;
 
 	ex_udp_d->iph->src_addr[0] = 192;
 	ex_udp_d->iph->src_addr[1] = 168;
@@ -131,19 +131,19 @@ int main()
 	ex_udp_d->iph->src_addr[3] = 20;
 
 	unsigned int sum = 0;
-	int pom = 0;
-	int ofset = 2;
-	unsigned short *pomocni;
+	int tmp2 = 0;
+	int offset = 2;
+	unsigned short *addr;
 	for (int i = 0; i < 9; i++) {
-		pomocni =(unsigned short*) ex_udp_d->iph + i*ofset;
-		sum += *pomocni;
+		addr =(unsigned short*) ex_udp_d->iph + i*offset;
+		sum += *addr;
 	}
 
-	int firstShort = 0xf000 & sum;
-	int lastShort = 0x0fff & sum;
+	int first_short = 0xf000 & sum;
+	int last_short = 0x0fff & sum;
 
-	pom = firstShort + lastShort;
-	sum = ~pom;
+	tmp2 = first_short + last_short;
+	sum = ~tmp2;
 
 	int tmp = ntohs(ex_udp_d->uh->datagram_length) - sizeof(udp_header);
 	*(ex_udp_d->seq_number) = 0;
