@@ -33,8 +33,8 @@ pcap_t* device_handle_in, *device_handle_out;
 unsigned char source_eth_addr[6] = {0x78, 0x0c, 0xb8, 0xf7, 0x71, 0xa0};
 unsigned char dest_eth_addr[6] = {0x2c, 0xd0, 0x5a, 0x90, 0xba, 0x9a};
 
-unsigned char source_ip_addr[4] = {10, 81, 2, 48};
-unsigned char dest_ip_addr[4] = { 10, 81, 2, 99};
+unsigned char source_ip_addr[4] = {192, 168, 0, 20};
+unsigned char dest_ip_addr[4] = { 192, 168, 0, 10 };
 
 int main()
 {
@@ -119,6 +119,9 @@ int main()
 		ex_udp_d->iph->dst_addr[i] = dest_ip_addr[i];
 	}
 
+	ex_udp_d->uh->dest_port = htons(27015);
+	ex_udp_d->uh->src_port = htons(27015);
+
 	unsigned int sum = 0;
 	int tmp2 = 0;
 	int offset = 2;
@@ -142,11 +145,19 @@ int main()
 	{
 		pcap_sendpacket(device_handle_out, packet_data, packet_header->len);
 		*(ex_udp_d->seq_number) += 1;
+
+		/*while (pcap_next_ex(device_handle_out, &packet_header, (const u_char**)&packet_data) != 0)
+			;
+		ex_udp_d = new ex_udp_datagram(packet_header, packet_data);
+		if (ex_udp_d->iph->src_addr[3] == 10)
+			printf("ACK received: %d\n", *(ex_udp_d->seq_number));*/
 	}
 
 	/*Waiting for ACK for every sent packet.*/
-	while (pcap_next_ex(device_handle_out, &packet_header, (const u_char**)&packet_data) != 0)
-		;
+	for (int i = 0; i < 10; i++)
+	{
+
+	}
 
 
 	
