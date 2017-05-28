@@ -72,6 +72,19 @@ typedef struct ex_udp_datagram
 		data = (unsigned char *)((unsigned char*)uh + /*(uh->datagram_length*/ + sizeof(udp_header)/*)*/ + sizeof(u_long));
 	}
 
+	ex_udp_datagram(const struct pcap_pkthdr *packet_header,const unsigned char *packet_data)
+	{
+		eh = (ethernet_header*)packet_data;
+		iph = (ip_header*)(packet_data + sizeof(ethernet_header));
+
+		int tmp = iph->header_length * 4;
+
+		uh = (udp_header*)((unsigned char*)iph + tmp);
+
+		seq_number = (u_long *)((unsigned char*)uh + /*(uh->datagram_length*/ +sizeof(udp_header)/*)*/);
+		data = (unsigned char *)((unsigned char*)uh + /*(uh->datagram_length*/ +sizeof(udp_header)/*)*/ + sizeof(u_long));
+	}
+
 /*	ex_udp_datagram(struct pcap_pkthdr *packet_header, unsigned char *packet_data)
 	{
 		eh = (ethernet_header*)packet_data;

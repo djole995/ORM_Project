@@ -46,6 +46,10 @@ int main()
 	char error_buffer [PCAP_ERRBUF_SIZE];
 	struct pcap_pkthdr* packet_header;
 	unsigned char* packet_data;
+	unsigned int netmask;
+
+	char filter_exp[] = "ip src 192.168.0.20 and udp port 27015";
+	struct bpf_program fcode;
 	
 	/**************************************************************/
 	//Retrieve the device list on the local machine 
@@ -103,20 +107,39 @@ int main()
 		return -1;
 	}
 
+	if (!device->addresses->netmask)
+		netmask = 0;
+	else
+		netmask = ((struct sockaddr_in *)(device->addresses->netmask))->sin_addr.s_addr;
+
+	// Compile the filter    
+	if (pcap_compile(device_handle_out, &fcode, filter_exp, 1, netmask) < 0)
+	{
+		printf("\n Unable to compile the packet filter. Check the syntax.\n");
+		return -1;
+	}
+
+	// Set the filter
+	if (pcap_setfilter(device_handle_out, &fcode) < 0)
+	{
+		printf("\n Error setting the filter.\n");
+		return -1;
+	}
+
 	initiallize(&packet_header, &packet_data);
 
 	ex_udp_datagram *ex_udp_d = new ex_udp_datagram(packet_header, packet_data);
 	/* Setting source and dest eth address.*/
 	for (int i = 0; i < 6; i++)
 	{
-		ex_udp_d->eh->src_address[i] = source_eth_addr[i];
-		ex_udp_d->eh->dest_address[i] = dest_eth_addr[i];
+		ex_udp_d->eh->src_address[i] = dest_eth_addr[i];
+		ex_udp_d->eh->dest_address[i] = source_eth_addr[i];
 	}
 
 	for (int i = 0; i < 4; i++)
 	{
-		ex_udp_d->iph->src_addr[i] = source_ip_addr[i];
-		ex_udp_d->iph->dst_addr[i] = dest_ip_addr[i];
+		ex_udp_d->iph->src_addr[i] = dest_ip_addr[i];
+		ex_udp_d->iph->dst_addr[i] = source_ip_addr[i];
 	}
 
 	ex_udp_d->uh->dest_port = htons(27015);
@@ -154,17 +177,18 @@ int main()
 	}
 
 	/*Waiting for ACK for every sent packet.*/
+	/*
 	for (int i = 0; i < 10; i++)
 	{
 
 	}
-
+	*/
+	pcap_loop(device_handle_out, 0, packet_handler, NULL);
 
 	
 	pcap_close(device_handle_out);
 
 	
-
 	return 0;
 }
 
@@ -172,6 +196,7 @@ int main()
 void packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header, const unsigned char* packet_data)
 {
 	// Retrieve position of ethernet_header
+	/*
 	ethernet_header* eh;
     eh = (ethernet_header*)packet_data;
 
@@ -186,6 +211,13 @@ void packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header
 
 		}
 	}
+	*/
+	ex_udp_datagram* rec_packet;
+	rec_packet = new ex_udp_datagram(packet_header, packet_data);
+	u_long* ack_num = rec_packet->seq_number;
+
+	printf("ACK number %d \n",*ack_num);
+
 }
 
 void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data) 
