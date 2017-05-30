@@ -19,12 +19,19 @@
 #include <pcap.h>
 #include "protocol_headers.h"
 #include <vector>
+#include <Windows.h>
+#include <windef.h>
+//#include <thread>
+//#include <mutex>
+//#include <condition_variable>
+//#include <iostream>
 
 using namespace std;
 
 void packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header, const unsigned char* packet_data);
 /* Read recorded udp datagram. */
 void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data);
+void PcapLoopThread();
 
 /* device_handle_in - recorded pcap file, opened in offline mode. */
 /* device_handle_out - output device (wi-fi or ethernet adapter). */
@@ -36,6 +43,17 @@ unsigned char dest_eth_addr[6] = {0x2c, 0xd0, 0x5a, 0x90, 0xba, 0x9a};
 unsigned char source_ip_addr[4] = {192, 168, 0, 20};
 unsigned char dest_ip_addr[4] = { 192, 168, 0, 10 };
 
+const int BLOCK_SIZE = 10;
+
+bool ack_buffer[BLOCK_SIZE];
+bool wrong_ack_err = false;
+
+HANDLE hPcapLoopThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)PcapLoopThread, NULL, 0, 0);
+HANDLE start_pcap_loop_event = CreateEvent(NULL, TRUE, FALSE, NULL);
+
+
+
+//DJOKARA VOLI BILJU 
 int main()
 {
     int i=0;
@@ -132,14 +150,14 @@ int main()
 	/* Setting source and dest eth address.*/
 	for (int i = 0; i < 6; i++)
 	{
-		ex_udp_d->eh->src_address[i] = dest_eth_addr[i];
-		ex_udp_d->eh->dest_address[i] = source_eth_addr[i];
+		ex_udp_d->eh->src_address[i] = source_eth_addr[i];
+		ex_udp_d->eh->dest_address[i] = dest_eth_addr[i];
 	}
 
 	for (int i = 0; i < 4; i++)
 	{
-		ex_udp_d->iph->src_addr[i] = dest_ip_addr[i];
-		ex_udp_d->iph->dst_addr[i] = source_ip_addr[i];
+		ex_udp_d->iph->src_addr[i] = source_ip_addr[i];
+		ex_udp_d->iph->dst_addr[i] = dest_ip_addr[i];
 	}
 
 	ex_udp_d->uh->dest_port = htons(27015);
@@ -149,7 +167,8 @@ int main()
 	int tmp2 = 0;
 	int offset = 2;
 	unsigned short *addr;
-	for (int i = 0; i < 9; i++) {
+	for (int i = 0; i < 9; i++) 
+	{
 		addr =(unsigned short*) ex_udp_d->iph + i*offset;
 		sum += *addr;
 	}
@@ -163,27 +182,25 @@ int main()
 	int tmp = ntohs(ex_udp_d->uh->datagram_length) - sizeof(udp_header);
 	*(ex_udp_d->seq_number) = 0;
 
-	/* Sending block of */
-	for (int i = 0; i < 100; i++)
+	SetEvent(start_pcap_loop_event);
+
+	/* Sending block of packets */
+	bool block_sent = false;
+	while (!block_sent)
 	{
-		pcap_sendpacket(device_handle_out, packet_data, packet_header->len);
-		*(ex_udp_d->seq_number) += 1;
-
-		/*while (pcap_next_ex(device_handle_out, &packet_header, (const u_char**)&packet_data) != 0)
-			;
-		ex_udp_d = new ex_udp_datagram(packet_header, packet_data);
-		if (ex_udp_d->iph->src_addr[3] == 10)
-			printf("ACK received: %d\n", *(ex_udp_d->seq_number));*/
+		static int backoff = 100;
+		block_sent = true;
+		for (int i = 0; i < BLOCK_SIZE; i++)
+			if (ack_buffer[i] == false)
+			{
+				block_sent = false;
+				backoff += 100;
+				printf("Packet : %d not sent.\n", i);
+				*(ex_udp_d->seq_number) = i;
+				pcap_sendpacket(device_handle_out, packet_data, packet_header->len);
+			}
+		Sleep(backoff);
 	}
-
-	/*Waiting for ACK for every sent packet.*/
-	/*
-	for (int i = 0; i < 10; i++)
-	{
-
-	}
-	*/
-	pcap_loop(device_handle_out, 0, packet_handler, NULL);
 
 	
 	pcap_close(device_handle_out);
@@ -195,35 +212,25 @@ int main()
 // Callback function invoked by libpcap/WinPcap for every incoming packet
 void packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header, const unsigned char* packet_data)
 {
-	// Retrieve position of ethernet_header
-	/*
-	ethernet_header* eh;
-    eh = (ethernet_header*)packet_data;
-
-	// Check the type of next protocol in packet
-	if (ntohs(eh->type) == 0x800)	// Ipv4
-	{
-		ip_header* ih;
-        ih = (ip_header*)(packet_data + sizeof(ethernet_header));
-
-		if(ih->next_protocol == 17) // UDP
-		{
-
-		}
-	}
-	*/
 	ex_udp_datagram* rec_packet;
 	rec_packet = new ex_udp_datagram(packet_header, packet_data);
 	u_long* ack_num = rec_packet->seq_number;
 
-	printf("ACK number %d \n",*ack_num);
+	if (*ack_num < BLOCK_SIZE)
+		ack_buffer[*ack_num] = true;
 
+	printf("ACK number %d \n",*ack_num);
 }
 
 void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data) 
 {
 	pcap_t* device_handle_i;
 	char error_buffer[PCAP_ERRBUF_SIZE];
+
+	for (int i = 0; i < BLOCK_SIZE; i++)
+	{
+		ack_buffer[i] = false;
+	}
 	
 	if ((device_handle_i = pcap_open_offline("udp.pcap",	// File name 
 		error_buffer					// Error buffer
@@ -274,5 +281,11 @@ void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data
 				pcap_sendpacket(device_handle_out, *packet_data, (*packet_header)->len);*/
 	//}
 
-	
+}
+
+void PcapLoopThread()
+{
+	WaitForSingleObject(start_pcap_loop_event, INFINITE);
+	/* Waiting ACK for every packet */
+	pcap_loop(device_handle_out, 0, packet_handler, NULL);
 }
