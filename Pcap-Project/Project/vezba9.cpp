@@ -16,29 +16,29 @@
 #include <time.h>
 #endif
 
+#include <thread>
+#include <condition_variable>
+#include <mutex>
 #include <pcap.h>
 #include "protocol_headers.h"
 #include <vector>
 #include <Windows.h>
 #include <windef.h>
-//#include <thread>
-//#include <mutex>
-//#include <condition_variable>
-//#include <iostream>
 
 using namespace std;
 
 void packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header, const unsigned char* packet_data);
+void eth_packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header, const unsigned char* packet_data);
 /* Read recorded udp datagram. */
 void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data);
-void PcapLoopThread();
+void cap_thread(pcap_t *device, pcap_handler handler);
 
 /* device_handle_in - recorded pcap file, opened in offline mode. */
 /* device_handle_out - output device (wi-fi or ethernet adapter). */
-pcap_t* device_handle_in, *device_handle_out;
+pcap_t* device_handle_in, *device_handle_wifi, *device_handle_eth;
 
-unsigned char source_eth_addr[6] = {0x78, 0x0c, 0xb8, 0xf7, 0x71, 0xa0};
-unsigned char dest_eth_addr[6] = {0x2c, 0xd0, 0x5a, 0x90, 0xba, 0x9a};
+unsigned char source_eth_addr[6] = {0x78, 0x0c, 0xb8, 0xf7, 0x71, 0xa0 };
+unsigned char dest_eth_addr[6] = {0x2c, 0xd0, 0x5a, 0x90, 0xba, 0x9a };
 
 unsigned char source_ip_addr[4] = {192, 168, 0, 20};
 unsigned char dest_ip_addr[4] = { 192, 168, 0, 10 };
@@ -48,16 +48,24 @@ const int BLOCK_SIZE = 10;
 bool ack_buffer[BLOCK_SIZE];
 bool wrong_ack_err = false;
 
-HANDLE hPcapLoopThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)PcapLoopThread, NULL, 0, 0);
+//HANDLE hPcapLoopThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)PcapLoopThread, NULL, 0, 0);
 HANDLE start_pcap_loop_event = CreateEvent(NULL, TRUE, FALSE, NULL);
 
-
+thread *wifi_cap_thread;
+thread *eth_cap_thread;
+condition_variable wifi_cap_wait;
+condition_variable eth_cap_wait;
+mutex mx;
+mutex stdout_mutex;
 
 //DJOKARA VOLI BILJU 
 int main()
 {
+	//eth_cap_thread = new thread(cap_thread);
+	//eth_cap_thread->detach();
     int i=0;
-    int device_number;
+    int wifi_device_number;
+	int eth_device_number;
     int sentBytes;
 	pcap_if_t* devices;
 	pcap_if_t* device;
@@ -66,7 +74,7 @@ int main()
 	unsigned char* packet_data;
 	unsigned int netmask;
 
-	char filter_exp[] = "ip src 192.168.0.20 and udp port 27015";
+	char filter_exp[] = "ip dst 192.168.0.20 and udp port 27015";
 	struct bpf_program fcode;
 	
 	/**************************************************************/
@@ -94,32 +102,54 @@ int main()
 		return -1;
 	}
 	// Pick one device from the list
-	printf("Enter the output interface number (1-%d):",i);
-	scanf("%d", &device_number);
+	printf("Enter the output interfaces number (1-%d):",i);
+	scanf("%d", &wifi_device_number);
+	scanf("%d", &eth_device_number);
 
-	if(device_number < 1 || device_number > i)
+	if(wifi_device_number < 1 || wifi_device_number > i || eth_device_number < 1 || eth_device_number > i)
 	{
-		printf("\nInterface number out of range.\n");
+		printf("\nInterfaces number out of range.\n");
 		return -1;
 	}
 
 	// Select the first device...
 	device=devices;
 	// ...and then jump to chosen devices
-	for (i=0; i<device_number-1; i++)
+	for (i=0; i<wifi_device_number-1; i++)
 	{
 		device=device->next;
 	}
 
 	// Open the output adapter 
-	if ((device_handle_out = pcap_open_live(device->name, 65536, 1, 1000, error_buffer)) == NULL)
+	if ((device_handle_wifi = pcap_open_live(device->name, 65536, 1, 1000, error_buffer)) == NULL)
+	{
+		printf("\n Unable to open adapter %s.\n", device->name);
+		return -1;
+	}
+
+	// Select the first device...
+	device = devices;
+	// ...and then jump to chosen devices
+	for (i = 0; i<eth_device_number - 1; i++)
+	{
+		device = device->next;
+	}
+
+	// Open the output adapter 
+	if ((device_handle_eth = pcap_open_live(device->name, 65536, 1, 1000, error_buffer)) == NULL)
 	{
 		printf("\n Unable to open adapter %s.\n", device->name);
 		return -1;
 	}
 	
 	// Check the link layer. We support only Ethernet for simplicity.
-	if(pcap_datalink(device_handle_out) != DLT_EN10MB)
+	if(pcap_datalink(device_handle_wifi) != DLT_EN10MB)
+	{
+		printf("\nThis program works only on Ethernet networks.\n");
+		return -1;
+	}
+
+	if (pcap_datalink(device_handle_eth) != DLT_EN10MB)
 	{
 		printf("\nThis program works only on Ethernet networks.\n");
 		return -1;
@@ -131,14 +161,14 @@ int main()
 		netmask = ((struct sockaddr_in *)(device->addresses->netmask))->sin_addr.s_addr;
 
 	// Compile the filter    
-	if (pcap_compile(device_handle_out, &fcode, filter_exp, 1, netmask) < 0)
+	if (pcap_compile(device_handle_wifi, &fcode, filter_exp, 1, netmask) < 0)
 	{
 		printf("\n Unable to compile the packet filter. Check the syntax.\n");
 		return -1;
 	}
 
 	// Set the filter
-	if (pcap_setfilter(device_handle_out, &fcode) < 0)
+	if (pcap_setfilter(device_handle_wifi, &fcode) < 0)
 	{
 		printf("\n Error setting the filter.\n");
 		return -1;
@@ -182,7 +212,10 @@ int main()
 	int tmp = ntohs(ex_udp_d->uh->datagram_length) - sizeof(udp_header);
 	*(ex_udp_d->seq_number) = 0;
 
-	SetEvent(start_pcap_loop_event);
+	wifi_cap_thread = new thread(cap_thread, device_handle_wifi, packet_handler);
+	eth_cap_thread = new thread(cap_thread, device_handle_eth, eth_packet_handler);
+	wifi_cap_thread->detach();
+	eth_cap_thread->detach();
 
 	/* Sending block of packets */
 	bool block_sent = false;
@@ -195,15 +228,18 @@ int main()
 			{
 				block_sent = false;
 				backoff += 100;
+				stdout_mutex.lock();
 				printf("Packet : %d not sent.\n", i);
+				stdout_mutex.unlock();
 				*(ex_udp_d->seq_number) = i;
-				pcap_sendpacket(device_handle_out, packet_data, packet_header->len);
+				pcap_sendpacket(device_handle_wifi, packet_data, packet_header->len);
 			}
 		Sleep(backoff);
 	}
 
 	
-	pcap_close(device_handle_out);
+	pcap_close(device_handle_wifi);
+	pcap_close(device_handle_eth);
 
 	
 	return 0;
@@ -219,7 +255,23 @@ void packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header
 	if (*ack_num < BLOCK_SIZE)
 		ack_buffer[*ack_num] = true;
 
-	printf("ACK number %d \n",*ack_num);
+	stdout_mutex.lock();
+	printf("ACK number %d \n", *ack_num);
+	stdout_mutex.unlock();
+}
+
+void eth_packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header, const unsigned char* packet_data)
+{
+	ex_udp_datagram* rec_packet;
+	rec_packet = new ex_udp_datagram(packet_header, packet_data);
+	u_long* ack_num = rec_packet->seq_number;
+
+	if (*ack_num < BLOCK_SIZE)
+		ack_buffer[*ack_num] = true;
+
+	stdout_mutex.lock();
+	printf("ACK number %d \n", *ack_num);
+	stdout_mutex.unlock();
 }
 
 void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data) 
@@ -242,50 +294,10 @@ void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data
 
 
 	pcap_next_ex(device_handle_i, packet_header, (const u_char**)packet_data);
-
-	/*ethernet_header* eh;
-	eh = (ethernet_header*)packet_data;*/
-
-	/*eh->src_address[0] = 0x78;
-	eh->src_address[1] = 0x0c;
-	eh->src_address[2] = 0xb8;
-	eh->src_address[3] = 0xf7;
-	eh->src_address[4] = 0x71;
-	eh->src_address[5] = 0xa0;
-
-	eh->dest_address[0] = 0x2c;
-	eh->dest_address[1] = 0xd0;
-	eh->dest_address[2] = 0x5a;
-	eh->dest_address[3] = 0x90;
-	eh->dest_address[4] = 0xba;
-	eh->dest_address[5] = 0x9a;*/
-
-	/*if (ntohs(eh->type) == 0x800)	// Ipv4
-	{
-		ip_header* ih;
-		ih = (ip_header*)(packet_data + sizeof(ethernet_header));*/
-
-		/*ih->dst_addr[0] = 192;
-		ih->dst_addr[1] = 168;
-		ih->dst_addr[2] = 0;
-		ih->dst_addr[3] = 10;
-
-		ih->src_addr[0] = 192;
-		ih->src_addr[1] = 168;
-		ih->src_addr[2] = 0;
-		ih->src_addr[3] = 20;*/
-
-		/*if (ih->next_protocol == 17) // UDP
-			// Add packet in the queue
-			for (int i = 0; i < 100; i++)
-				pcap_sendpacket(device_handle_out, *packet_data, (*packet_header)->len);*/
-	//}
-
 }
 
-void PcapLoopThread()
+void cap_thread(pcap_t *device, pcap_handler handler)
 {
-	WaitForSingleObject(start_pcap_loop_event, INFINITE);
 	/* Waiting ACK for every packet */
-	pcap_loop(device_handle_out, 0, packet_handler, NULL);
+	pcap_loop(device, 0, handler, NULL);
 }
