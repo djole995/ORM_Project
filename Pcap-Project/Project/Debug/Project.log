@@ -1,5 +1,5 @@
 ﻿  vezba9.cpp
-d:\orm_project\pcap-project\project\vezba9.cpp(69): warning C4101: 'sentBytes': unreferenced local variable
+d:\orm_project\pcap-project\project\vezba9.cpp(71): warning C4101: 'sentBytes': unreferenced local variable
 vezba9.obj : warning LNK4075: ignoring '/EDITANDCONTINUE' due to '/INCREMENTAL:NO' specification
   Project.vcxproj -> D:\ORM_Project\Pcap-Project\Project\.\Debug\Project.exe
   Project.vcxproj -> .\Debug\Project.pdb (Full PDB)

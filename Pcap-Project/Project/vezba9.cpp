@@ -40,8 +40,10 @@ pcap_t* device_handle_in, *device_handle_wifi, *device_handle_eth;
 unsigned char source_eth_addr[6] = {0x78, 0x0c, 0xb8, 0xf7, 0x71, 0xa0 };
 unsigned char dest_eth_addr[6] = {0x2c, 0xd0, 0x5a, 0x90, 0xba, 0x9a };
 
-unsigned char source_ip_addr[4] = {192, 168, 0, 20};
-unsigned char dest_ip_addr[4] = { 192, 168, 0, 10 };
+//unsigned char source_ip_addr[4] = {192, 168, 0, 20};
+unsigned char source_ip_addr[4] = { 10, 81, 2, 44 };
+//unsigned char dest_ip_addr[4] = { 192, 168, 0, 10 };
+unsigned char dest_ip_addr[4] = { 10, 81, 2, 52 };
 
 const int BLOCK_SIZE = 10;
 
@@ -73,6 +75,7 @@ int main()
 	struct pcap_pkthdr* packet_header;
 	unsigned char* packet_data;
 	unsigned int netmask;
+	int send_option;
 
 	char filter_exp[] = "ip dst 192.168.0.20 and udp port 27015";
 	struct bpf_program fcode;
@@ -101,10 +104,21 @@ int main()
 		printf("\nNo interfaces found! Make sure WinPcap is installed.\n");
 		return -1;
 	}
+
+	printf("Enter send option (1 - Serial, 2 - Parallel):\n");
+	scanf("%d", &send_option);
 	// Pick one device from the list
-	printf("Enter the output interfaces number (1-%d):",i);
-	scanf("%d", &wifi_device_number);
-	scanf("%d", &eth_device_number);
+	printf("Enter the output interface(s) number (1-%d):",i);
+	if (send_option == 1)
+	{
+		scanf("%d", &wifi_device_number);
+	}
+	else
+	{
+		scanf("%d", &wifi_device_number);
+		scanf("%d", &eth_device_number);
+	}
+
 
 	if(wifi_device_number < 1 || wifi_device_number > i || eth_device_number < 1 || eth_device_number > i)
 	{
@@ -213,9 +227,9 @@ int main()
 	*(ex_udp_d->seq_number) = 0;
 
 	wifi_cap_thread = new thread(cap_thread, device_handle_wifi, packet_handler);
-	eth_cap_thread = new thread(cap_thread, device_handle_eth, eth_packet_handler);
+	//eth_cap_thread = new thread(cap_thread, device_handle_eth, eth_packet_handler);
 	wifi_cap_thread->detach();
-	eth_cap_thread->detach();
+	//eth_cap_thread->detach();
 
 	/* Sending block of packets */
 	bool block_sent = false;
