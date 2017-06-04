@@ -27,11 +27,18 @@
 
 using namespace std;
 
-void packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header, const unsigned char* packet_data);
+/* Packet handlers for captured packets on ethernet and wifi adapters. */
+void wifi_packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header, const unsigned char* packet_data);
 void eth_packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header, const unsigned char* packet_data);
+
 /* Read recorded udp datagram. */
 void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data);
+
+/* Capture packets on device which are processed with given packet handler. */
 void cap_thread(pcap_t *device, pcap_handler handler);
+
+/* Calculates IPv4 header checksum. */
+uint16_t ip_checksum(const void *buf, size_t hdr_len);
 
 /* device_handle_in - recorded pcap file, opened in offline mode. */
 /* device_handle_out - output device (wi-fi or ethernet adapter). */
@@ -50,15 +57,16 @@ const int BLOCK_SIZE = 10;
 bool ack_buffer[BLOCK_SIZE];
 bool wrong_ack_err = false;
 
-//HANDLE hPcapLoopThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)PcapLoopThread, NULL, 0, 0);
-HANDLE start_pcap_loop_event = CreateEvent(NULL, TRUE, FALSE, NULL);
-
 thread *wifi_cap_thread;
 thread *eth_cap_thread;
 condition_variable wifi_cap_wait;
 condition_variable eth_cap_wait;
 mutex mx;
 mutex stdout_mutex;
+
+/* Global pointer to data read from file and its lenght, initialized in initialize function.*/
+unsigned char *file_buff;
+long file_length;
 
 //DJOKARA VOLI BILJU 
 int main()
@@ -207,26 +215,10 @@ int main()
 	ex_udp_d->uh->dest_port = htons(27015);
 	ex_udp_d->uh->src_port = htons(27015);
 
-	unsigned int sum = 0;
-	int tmp2 = 0;
-	int offset = 2;
-	unsigned short *addr;
-	for (int i = 0; i < 9; i++) 
-	{
-		addr =(unsigned short*) ex_udp_d->iph + i*offset;
-		sum += *addr;
-	}
-
-	int first_short = 0xf000 & sum;
-	int last_short = 0x0fff & sum;
-
-	tmp2 = first_short + last_short;
-	sum = ~tmp2;
-
 	int tmp = ntohs(ex_udp_d->uh->datagram_length) - sizeof(udp_header);
 	*(ex_udp_d->seq_number) = 0;
 
-	wifi_cap_thread = new thread(cap_thread, device_handle_wifi, packet_handler);
+	wifi_cap_thread = new thread(cap_thread, device_handle_wifi, wifi_packet_handler);
 	//eth_cap_thread = new thread(cap_thread, device_handle_eth, eth_packet_handler);
 	wifi_cap_thread->detach();
 	//eth_cap_thread->detach();
@@ -260,7 +252,7 @@ int main()
 }
 
 // Callback function invoked by libpcap/WinPcap for every incoming packet
-void packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header, const unsigned char* packet_data)
+void wifi_packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header, const unsigned char* packet_data)
 {
 	ex_udp_datagram* rec_packet;
 	rec_packet = new ex_udp_datagram(packet_header, packet_data);
@@ -291,7 +283,26 @@ void eth_packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_he
 void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data) 
 {
 	pcap_t* device_handle_i;
+	FILE *data_file;
 	char error_buffer[PCAP_ERRBUF_SIZE];
+
+	data_file = fopen("data.txt", "ab+");
+
+	if (data_file == NULL)
+	{
+		printf("Failed to open file!\n");
+		return;
+	}
+
+	fseek(data_file, 0, SEEK_END);
+	long file_size = ftell(data_file);
+
+	fseek(data_file, 0, SEEK_SET);
+
+	file_buff = new unsigned char[file_size];
+
+	fread(file_buff, sizeof(unsigned char), file_size, data_file);
+
 
 	for (int i = 0; i < BLOCK_SIZE; i++)
 	{
@@ -314,4 +325,28 @@ void cap_thread(pcap_t *device, pcap_handler handler)
 {
 	/* Waiting ACK for every packet */
 	pcap_loop(device, 0, handler, NULL);
+}
+
+
+//! \brief Calculate the IP header checksum.
+//! \param buf The IP header content.
+//! \param hdr_len The IP header length.
+//! \return The result of the checksum.
+uint16_t ip_checksum(const void *buf, size_t hdr_len)
+{
+	unsigned long sum = 0;
+	const uint16_t *ip1;
+	
+	ip1 = (const uint16_t *) buf;
+	while (hdr_len > 1)
+	{
+		sum += *ip1++;
+		if (sum & 0x80000000)
+			sum = (sum & 0xFFFF) + (sum >> 16);
+	}
+	
+	while (sum >> 16)
+		sum = (sum & 0xFFFF) + (sum >> 16);
+	
+	return(~sum);
 }
