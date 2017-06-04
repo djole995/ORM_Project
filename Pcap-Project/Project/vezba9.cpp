@@ -37,7 +37,7 @@ void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data
 /* Capture packets on device which are processed with given packet handler. */
 void cap_thread(pcap_t *device, pcap_handler handler);
 
-void send_thread(pcap_t *device);
+void send_thread(pcap_t *device, unsigned char* send_data);
 
 /* Calculates IPv4 header checksum. */
 uint16_t ip_checksum(const void *buf, size_t hdr_len);
@@ -80,6 +80,10 @@ struct pcap_pkthdr* packet_header;
 unsigned char* packet_data;
 
 ex_udp_datagram* ex_udp_d;
+
+/* Data sent via wifi and ethernet. */
+unsigned char *wifi_send_data;
+unsigned char *eth_send_data;
 
 int main()
 {
@@ -235,7 +239,11 @@ int main()
 	wifi_cap_thread->detach();
 	//eth_cap_thread->detach();
 
-	wifi_send_thread = new thread(send_thread, device_handle_wifi);
+	/* Split packets on two halfs, one is sent via wifi, second via ethernet. */
+	wifi_send_data = file_buff;
+	eth_send_data = file_buff + file_length / 2;
+	wifi_send_thread = new thread(send_thread, device_handle_wifi, wifi_send_data);
+	eth_send_thread = new thread(send_thread, device_handle_wifi, eth_send_data);
 
 	/* Sending block of packets */
 /*	bool block_sent = false;
@@ -258,6 +266,7 @@ int main()
 	}*/
 
 	wifi_send_thread->join();
+	eth_send_thread->join();
 	
 	pcap_close(device_handle_wifi);
 	pcap_close(device_handle_eth);
@@ -342,7 +351,7 @@ void cap_thread(pcap_t *device, pcap_handler handler)
 	pcap_loop(device, 0, handler, NULL);
 }
 
-void send_thread(pcap_t * device)
+void send_thread(pcap_t * device, unsigned char *send_data)
 {
 	/* Sending block of packets */
 	bool block_sent = false;
@@ -362,25 +371,25 @@ void send_thread(pcap_t * device)
 				packet_header->len = sizeof(udp_header) + ex_udp_d->iph->header_length * 4 + sizeof(ethernet_header);
 
 				/* Last datagram in file is smaller than others? */
-				if ((i + 1)*DATAGRAM_DATA_SIZE <= file_length)
+				if ((i + 1)*DATAGRAM_DATA_SIZE <= file_length/2)
 				{
-					memcpy(packet_data, file_buff + i*DATAGRAM_DATA_SIZE, DATAGRAM_DATA_SIZE);
-					ex_udp_d->iph->length = ex_udp_d->iph->header_length*4 + sizeof(udp_header) + DATAGRAM_DATA_SIZE;
-					ex_udp_d->uh->datagram_length = sizeof(udp_header) + DATAGRAM_DATA_SIZE;
-					packet_header->len += DATAGRAM_DATA_SIZE;
+					memcpy(ex_udp_d->data, send_data + i*DATAGRAM_DATA_SIZE, DATAGRAM_DATA_SIZE);
+					ex_udp_d->iph->length = htons(ex_udp_d->iph->header_length*4 + sizeof(udp_header) + DATAGRAM_DATA_SIZE + 4);
+					ex_udp_d->uh->datagram_length = htons(sizeof(udp_header) + DATAGRAM_DATA_SIZE + 4);
+					packet_header->len += DATAGRAM_DATA_SIZE + 4;
 				}
 				else
 				{
-					memcpy(packet_data, file_buff + i*DATAGRAM_DATA_SIZE, file_length - i*DATAGRAM_DATA_SIZE);
-					ex_udp_d->iph->length = htons(ex_udp_d->iph->header_length*4 + sizeof(udp_header) + file_length - i*DATAGRAM_DATA_SIZE);
-					ex_udp_d->uh->datagram_length = htons(sizeof(udp_header) + file_length - i*DATAGRAM_DATA_SIZE);
-					packet_header->len += file_length - i*DATAGRAM_DATA_SIZE;
+					memcpy(ex_udp_d->data, send_data + i*DATAGRAM_DATA_SIZE, file_length/2 - i*DATAGRAM_DATA_SIZE);
+					ex_udp_d->iph->length = htons(ex_udp_d->iph->header_length*4 + sizeof(udp_header) + file_length/2 - i*DATAGRAM_DATA_SIZE + 4);
+					ex_udp_d->uh->datagram_length = htons(sizeof(udp_header) + file_length/2 - i*DATAGRAM_DATA_SIZE + 4);
+					packet_header->len += file_length/2 - i*DATAGRAM_DATA_SIZE + 4;
 				}
-				*(ex_udp_d->seq_number) = i;
+				*(ex_udp_d->seq_number) = htonl(i);
 				pcap_sendpacket(device, packet_data, packet_header->len);
 
 				/* All packets sent */
-				if ((i + 1)*DATAGRAM_DATA_SIZE >= file_length)
+				if ((i + 1)*DATAGRAM_DATA_SIZE >= file_length/2)
 					break;
 			}
 		Sleep(backoff);
