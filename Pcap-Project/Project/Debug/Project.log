@@ -1,6 +1,8 @@
 ﻿  vezba9.cpp
-d:\orm_project\pcap-project\project\vezba9.cpp(79): warning C4101: 'sentBytes': unreferenced local variable
-d:\orm_project\pcap-project\project\vezba9.cpp(351): warning C4244: 'return': conversion from 'unsigned long' to 'uint16_t', possible loss of data
+d:\orm_project\pcap-project\project\vezba9.cpp(91): warning C4101: 'sentBytes': unreferenced local variable
+d:\orm_project\pcap-project\project\vezba9.cpp(375): warning C4244: 'argument': conversion from 'unsigned long' to 'u_short', possible loss of data
+d:\orm_project\pcap-project\project\vezba9.cpp(376): warning C4244: 'argument': conversion from 'unsigned long' to 'u_short', possible loss of data
+d:\orm_project\pcap-project\project\vezba9.cpp(411): warning C4244: 'return': conversion from 'unsigned long' to 'uint16_t', possible loss of data
 vezba9.obj : warning LNK4075: ignoring '/EDITANDCONTINUE' due to '/INCREMENTAL:NO' specification
   Project.vcxproj -> D:\ORM_Project\Pcap-Project\Project\.\Debug\Project.exe
   Project.vcxproj -> .\Debug\Project.pdb (Full PDB)

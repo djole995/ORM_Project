@@ -37,6 +37,8 @@ void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data
 /* Capture packets on device which are processed with given packet handler. */
 void cap_thread(pcap_t *device, pcap_handler handler);
 
+void send_thread(pcap_t *device);
+
 /* Calculates IPv4 header checksum. */
 uint16_t ip_checksum(const void *buf, size_t hdr_len);
 
@@ -53,10 +55,15 @@ unsigned char source_ip_addr[4] = { 10, 81, 2, 44 };
 unsigned char dest_ip_addr[4] = { 10, 81, 2, 52 };
 
 const int BLOCK_SIZE = 10;
+const int DATAGRAM_DATA_SIZE = 10;
 
 bool ack_buffer[BLOCK_SIZE];
 bool wrong_ack_err = false;
 
+/* Parallel output stream threads. */
+thread *wifi_send_thread;
+thread *eth_send_thread;
+/* Parallel input stream threads. */
 thread *wifi_cap_thread;
 thread *eth_cap_thread;
 condition_variable wifi_cap_wait;
@@ -68,7 +75,12 @@ mutex stdout_mutex;
 unsigned char *file_buff;
 long file_length;
 
-//DJOKARA VOLI BILJU 
+
+struct pcap_pkthdr* packet_header;
+unsigned char* packet_data;
+
+ex_udp_datagram* ex_udp_d;
+
 int main()
 {
 	//eth_cap_thread = new thread(cap_thread);
@@ -80,8 +92,6 @@ int main()
 	pcap_if_t* devices;
 	pcap_if_t* device;
 	char error_buffer [PCAP_ERRBUF_SIZE];
-	struct pcap_pkthdr* packet_header;
-	unsigned char* packet_data;
 	unsigned int netmask;
 	int send_option;
 
@@ -198,7 +208,9 @@ int main()
 
 	initiallize(&packet_header, &packet_data);
 
-	ex_udp_datagram *ex_udp_d = new ex_udp_datagram(packet_header, packet_data);
+	//packet_data = new unsigned char[DATAGRAM_DATA_SIZE];
+
+	ex_udp_d = new ex_udp_datagram(packet_header, packet_data);
 	/* Setting source and dest eth address.*/
 	for (int i = 0; i < 6; i++)
 	{
@@ -223,8 +235,10 @@ int main()
 	wifi_cap_thread->detach();
 	//eth_cap_thread->detach();
 
+	wifi_send_thread = new thread(send_thread, device_handle_wifi);
+
 	/* Sending block of packets */
-	bool block_sent = false;
+/*	bool block_sent = false;
 	while (!block_sent)
 	{
 		static int backoff = 100;
@@ -241,8 +255,9 @@ int main()
 				pcap_sendpacket(device_handle_wifi, packet_data, packet_header->len);
 			}
 		Sleep(backoff);
-	}
+	}*/
 
+	wifi_send_thread->join();
 	
 	pcap_close(device_handle_wifi);
 	pcap_close(device_handle_eth);
@@ -295,13 +310,13 @@ void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data
 	}
 
 	fseek(data_file, 0, SEEK_END);
-	long file_size = ftell(data_file);
+	file_length = ftell(data_file);
 
 	fseek(data_file, 0, SEEK_SET);
 
-	file_buff = new unsigned char[file_size];
+	file_buff = new unsigned char[file_length];
 
-	fread(file_buff, sizeof(unsigned char), file_size, data_file);
+	fread(file_buff, sizeof(unsigned char), file_length, data_file);
 
 
 	for (int i = 0; i < BLOCK_SIZE; i++)
@@ -325,6 +340,51 @@ void cap_thread(pcap_t *device, pcap_handler handler)
 {
 	/* Waiting ACK for every packet */
 	pcap_loop(device, 0, handler, NULL);
+}
+
+void send_thread(pcap_t * device)
+{
+	/* Sending block of packets */
+	bool block_sent = false;
+	while (!block_sent)
+	{
+		static int backoff = 100;
+		block_sent = true;
+		for (int i = 0; i < BLOCK_SIZE; i++)
+			if (ack_buffer[i] == false)
+			{
+				block_sent = false;
+				backoff += 100;
+				stdout_mutex.lock();
+				printf("Packet : %d not sent.\n", i);
+				stdout_mutex.unlock();
+
+				packet_header->len = sizeof(udp_header) + ex_udp_d->iph->header_length * 4 + sizeof(ethernet_header);
+
+				/* Last datagram in file is smaller than others? */
+				if ((i + 1)*DATAGRAM_DATA_SIZE <= file_length)
+				{
+					memcpy(packet_data, file_buff + i*DATAGRAM_DATA_SIZE, DATAGRAM_DATA_SIZE);
+					ex_udp_d->iph->length = ex_udp_d->iph->header_length*4 + sizeof(udp_header) + DATAGRAM_DATA_SIZE;
+					ex_udp_d->uh->datagram_length = sizeof(udp_header) + DATAGRAM_DATA_SIZE;
+					packet_header->len += DATAGRAM_DATA_SIZE;
+				}
+				else
+				{
+					memcpy(packet_data, file_buff + i*DATAGRAM_DATA_SIZE, file_length - i*DATAGRAM_DATA_SIZE);
+					ex_udp_d->iph->length = htons(ex_udp_d->iph->header_length*4 + sizeof(udp_header) + file_length - i*DATAGRAM_DATA_SIZE);
+					ex_udp_d->uh->datagram_length = htons(sizeof(udp_header) + file_length - i*DATAGRAM_DATA_SIZE);
+					packet_header->len += file_length - i*DATAGRAM_DATA_SIZE;
+				}
+				*(ex_udp_d->seq_number) = i;
+				pcap_sendpacket(device, packet_data, packet_header->len);
+
+				/* All packets sent */
+				if ((i + 1)*DATAGRAM_DATA_SIZE >= file_length)
+					break;
+			}
+		Sleep(backoff);
+	}
 }
 
 
