@@ -72,6 +72,19 @@ typedef struct ex_udp_datagram
 		data = (unsigned char *)((unsigned char*)uh + /*(uh->datagram_length*/ + sizeof(udp_header)/*)*/ + sizeof(u_long));
 	}
 
+	ex_udp_datagram(unsigned char *packet_data)
+	{
+		eh = (ethernet_header*)packet_data;
+		iph = (ip_header*)(packet_data + sizeof(ethernet_header));
+
+		int tmp = iph->header_length * 4;
+
+		uh = (udp_header*)((unsigned char*)iph + tmp);
+
+		seq_number = (u_long *)((unsigned char*)uh +sizeof(udp_header));
+		data = (unsigned char *)((unsigned char*)uh + sizeof(udp_header) + sizeof(u_long));
+	}
+
 	ex_udp_datagram(const struct pcap_pkthdr *packet_header,const unsigned char *packet_data)
 	{
 		eh = (ethernet_header*)packet_data;
@@ -85,16 +98,10 @@ typedef struct ex_udp_datagram
 		data = (unsigned char *)((unsigned char*)uh + /*(uh->datagram_length*/ +sizeof(udp_header)/*)*/ + sizeof(u_long));
 	}
 
-/*	ex_udp_datagram(struct pcap_pkthdr *packet_header, unsigned char *packet_data)
+	void change_data_size(int new_data_size)
 	{
-		eh = (ethernet_header*)packet_data;
-		iph = (ip_header*)(packet_data + sizeof(ethernet_header));
+		iph->length = htons(iph->header_length * 4 + sizeof(udp_header) + new_data_size + 4);
+		uh->datagram_length = htons(sizeof(udp_header) + new_data_size + 4);
+	}
 
-		int tmp = iph->header_length * 4;
-
-		uh = (udp_header*)((unsigned char*)iph + tmp);
-
-		seq_number = (u_long *)((unsigned char*)uh +  +sizeof(udp_header));
-		data = (unsigned char *)((unsigned char*)uh +  +sizeof(udp_header) + sizeof(u_long));
-	}*/
 } ex_udp_datagram;
