@@ -37,9 +37,9 @@ void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data
 /* Capture packets on device which are processed with given packet handler. */
 void cap_thread(pcap_t *device, pcap_handler handler);
 
-void send_thread(pcap_t *device, unsigned char* send_data, unsigned int data_size, unsigned int id);
+void send_thread(pcap_t *device, unsigned char** send_data, unsigned int data_size, unsigned int id);
 
-unsigned int make_packets(unsigned char *input_data, unsigned char ***packets, unsigned char *udp_packet_data, 
+void make_packets(unsigned char *input_data, unsigned char ***packets, unsigned char *udp_packet_data, 
 	struct pcap_pkthdr *udp_packet_header, unsigned int data_size, unsigned int packet_data_size);
 
 /* Calculates IPv4 header checksum. */
@@ -60,10 +60,11 @@ unsigned char dest_ip_addr[4] = { 192, 168, 0, 10 };
 const int BLOCK_SIZE = 10;
 const int DATAGRAM_DATA_SIZE = 10;
 const int BUFFER_SIZE_ACK_NUM = 10000;
+const int INTERFACES_NUMBER = 2;
+const int PORT_NUMBER = 27015;
 
-bool ack_buffer[BLOCK_SIZE*100];
-bool ack_buffer_size[2];
-bool wrong_ack_err = false;
+/* ACK buffer. First element represent ACK for sent data size, others are ACKs for user datagrams. */
+bool ack_buffer[2000];
 
 /* Parallel output stream threads. */
 thread *wifi_send_thread;
@@ -75,6 +76,7 @@ condition_variable wifi_cap_wait;
 condition_variable eth_cap_wait;
 mutex mx;
 mutex stdout_mutex;
+mutex ack_buff_mutex;
 
 /* Global pointer to data read from file and its lenght, initialized in initialize function.*/
 unsigned char *file_buff;
@@ -86,14 +88,21 @@ unsigned char* packet_data;
 
 /* Packets created from read file data. */
 unsigned char **packets;
+/* Size of packet including headers, size of extended header itself and number of created packets
+, all initialized in make_packets function. */
+unsigned int total_packet_size;
+/* Last packet may be smaller than others. */
+unsigned int last_packet_total_size;
+unsigned int packets_num;
+unsigned int header_size;
 
 ex_udp_datagram* ex_udp_d;
 
 /* Data sent via wifi and ethernet. */
-unsigned char *wifi_send_data;
+unsigned char **wifi_send_data;
 unsigned int wifi_data_size;
 unsigned char *wifi_packets;
-unsigned char *eth_send_data;
+unsigned char **eth_send_data;
 unsigned int eth_data_size;
 unsigned char *eth_packets;
 
@@ -245,13 +254,17 @@ int main()
 	/* Read generic udp packet and read raw data file. */
 	initiallize(&packet_header, &packet_data);
 	/* Split file data into packes of DATAGRAM_DATA_SIZE size. */
-	unsigned int packets_number = make_packets(file_buff, &packets, packet_data, packet_header, file_length, DATAGRAM_DATA_SIZE);
+	make_packets(file_buff, &packets, packet_data, packet_header, file_length, DATAGRAM_DATA_SIZE);
 
-	for (int i = 0; i < packets_number; i++)
+	for (int i = 0; i < packets_num; i++)
 	{
 			ex_udp_d = new ex_udp_datagram(packets[i]);
 			for (int j = 0; j < DATAGRAM_DATA_SIZE; j++)
+			{
 				printf("%c", ex_udp_d->data[j]);
+				
+			}
+			printf("\n%d", *ex_udp_d->seq_number);
 		printf("\n");
 	}
 
@@ -287,10 +300,10 @@ int main()
 	eth_cap_thread->detach();
 
 	/* Split packets on two halfs, one is sent via wifi, second via ethernet. */
-	wifi_send_data = file_buff;
-	wifi_data_size = file_length/2;
-	eth_send_data = file_buff + file_length / 2;
-	eth_data_size = (file_length % 2 == 0) ? file_length / 2 : file_length / 2 + 1;
+	wifi_send_data = packets;
+	wifi_data_size = packets_num/2;
+	eth_send_data = packets + packets_num / 2;
+	eth_data_size = (packets_num % 2 == 0) ? packets_num / 2 : packets_num / 2 + 1;
 	wifi_send_thread = new thread(send_thread, device_handle_wifi, wifi_send_data, wifi_data_size, 0);
 	eth_send_thread = new thread(send_thread, device_handle_eth, eth_send_data, eth_data_size, 1);
 
@@ -310,14 +323,10 @@ void wifi_packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_h
 	rec_packet = new ex_udp_datagram(packet_header, packet_data);
 	u_long* ack_num = rec_packet->seq_number;
 
-	int i = 0;
-	if (ntohl(*ack_num) < BLOCK_SIZE*100)
-		ack_buffer[ntohl(*ack_num)] = true;
-	else if (ntohl(*ack_num) == BUFFER_SIZE_ACK_NUM)
-		ack_buffer_size[i++] = true;
+	ack_buffer[ntohl(*ack_num)] = true;
 
 	stdout_mutex.lock();
-	printf("ACK number %d \n", ntohl(*ack_num));
+	printf("WiFi: ACK number %d \n", ntohl(*ack_num));
 	stdout_mutex.unlock();
 }
 
@@ -327,26 +336,28 @@ void eth_packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_he
 	rec_packet = new ex_udp_datagram(packet_header, packet_data);
 	u_long* ack_num = rec_packet->seq_number;
 
-	if (*ack_num < BLOCK_SIZE)
-		ack_buffer[*ack_num] = true;
+	ack_buffer[ntohl(*ack_num)] = true;
 
 	stdout_mutex.lock();
-	printf("ACK number %d \n", *ack_num);
+	printf("Eth : ACK number %d \n", ntohl(*ack_num));
 	stdout_mutex.unlock();
 }
 
 /* Split data to packets. Return number of packets created. */
-unsigned int make_packets(unsigned char *input_data, unsigned char ***packets, unsigned char *udp_packet_data, struct pcap_pkthdr *udp_packet_header, unsigned int input_data_size, unsigned int packet_data_size)
+void make_packets(unsigned char *input_data, unsigned char ***packets, unsigned char *udp_packet_data, struct pcap_pkthdr *udp_packet_header, unsigned int input_data_size, unsigned int packet_data_size)
 {
-	int packets_num = ceil(double(input_data_size) / packet_data_size);
+	packets_num = ceil(double(input_data_size) / packet_data_size);
 	*packets = new unsigned char*[packets_num];
 
+	/* Help structures. */
 	ex_udp_datagram *udp_d = new ex_udp_datagram(udp_packet_header, udp_packet_data);
+	ip_header *iph;
+	udp_header *uh;
 
-	int header_size = sizeof(ethernet_header) + udp_d->iph->header_length * 4 + sizeof(udp_header) + 4; //4 bytes for ACK num
+	header_size = sizeof(ethernet_header) + udp_d->iph->header_length * 4 + sizeof(udp_header) + 4; //4 bytes for ACK num
 	/* Total packet len = header size + raw data size. */
-	int total_packet_size = header_size + packet_data_size;
-	int last_packet_size = header_size + input_data_size - (packets_num - 1)*packet_data_size;
+	total_packet_size = header_size + packet_data_size;
+	last_packet_total_size = header_size + input_data_size - (packets_num - 1)*packet_data_size;
 
 	for (int i = 0; i < packets_num-1; i++)
 	{
@@ -355,19 +366,38 @@ unsigned int make_packets(unsigned char *input_data, unsigned char ***packets, u
 		memcpy((*packets)[i], udp_packet_data, header_size);
 		/* Copy raw data. */
 		memcpy((*packets)[i] + header_size, input_data + i*packet_data_size, packet_data_size);
-
+		/* Setting header fields which indicates packet size. */
+		iph = (ip_header*)((*packets)[i] + sizeof(ethernet_header));
+		uh = (udp_header*)((*packets)[i] + iph->header_length * 4 + sizeof(ethernet_header));
+		iph->length = htons(total_packet_size - sizeof(ethernet_header));
+		uh->datagram_length = htons(total_packet_size - iph->header_length * 4 - sizeof(ethernet_header));
+		uh->src_port = htons(PORT_NUMBER);
+		uh->dest_port = htons(PORT_NUMBER);
 	}
 
 	/* Last packet is smaller than others. */
-	(*packets)[packets_num-1] = new unsigned char[last_packet_size];
+	(*packets)[packets_num-1] = new unsigned char[last_packet_total_size];
 	/* Copy header from generic packet. */
 	memcpy((*packets)[packets_num-1], udp_packet_data, header_size);
 	/* Copy raw data. */
-	memcpy((*packets)[packets_num-1] + header_size, input_data + (packets_num-1)*packet_data_size, last_packet_size - header_size);
+	memcpy((*packets)[packets_num-1] + header_size, input_data + (packets_num-1)*packet_data_size, last_packet_total_size - header_size);
+	/* Setting header fields which indicates packet size. */
+	iph = (ip_header*)((*packets)[packets_num - 1] + sizeof(ethernet_header));
+	uh = (udp_header*)((*packets)[packets_num - 1] + iph->header_length * 4 + sizeof(ethernet_header));
+	iph->length = htons(last_packet_total_size - sizeof(ethernet_header));
+	uh->datagram_length = htons(last_packet_total_size - iph->header_length * 4 - sizeof(ethernet_header));
+	uh->src_port = htons(PORT_NUMBER);
+	uh->dest_port = htons(PORT_NUMBER);
+
+	/* Enumerating packets (setting ACK nums in extended udp header). */
+	u_long *ack;
+	for (int i = 0; i < packets_num; i++)
+	{
+		ack = (u_long *) ((*packets)[i] + header_size - 4);
+		*ack = i+1;
+	}
 
 	delete udp_d;
-
-	return packets_num;
 }
 
 void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data) 
@@ -419,66 +449,65 @@ void cap_thread(pcap_t *device, pcap_handler handler)
 
 
 
-void send_thread(pcap_t * device, unsigned char *send_data, unsigned int data_size, unsigned int id)
+void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_size, unsigned int id)
 {
 	ex_udp_d->change_data_size(sizeof(unsigned int));
 
 	/* Set raw packet data to output buffer size. */
 	unsigned int *d_size = (unsigned int*) ex_udp_d->data;
-	*d_size = htons(data_size);
+	*d_size = htonl(data_size);
 
-	/* Send data size. */
+	/* Send data size. Send until ACK is received from client. */
 	int ret = -1;
-	ack_buffer_size[id] = true;
-	while(ret != 0 && ack_buffer_size == false)
+	ack_buff_mutex.lock();
+	while (ret != 0 && ack_buffer[0] == false)
+	{
+		ack_buff_mutex.unlock();
 		ret = pcap_sendpacket(device, packet_data, sizeof(udp_header) + ex_udp_d->iph->header_length * 4 + sizeof(ethernet_header) + 8);
+		Sleep(100);
+		ack_buff_mutex.lock();
+	}
+	ack_buff_mutex.unlock();
 
 	int block_num = 0;
-	/* Sending block of packets. */
-	
-	for (int j = 0; j <= data_size / DATAGRAM_DATA_SIZE / BLOCK_SIZE; j++)
+	int backoff;
+	int window_pos = id* (packets_num / 2);
+
+	for (int j = 0; j < ceil(float(data_size) / DATAGRAM_DATA_SIZE / BLOCK_SIZE); j++)
 	{
+		backoff = 100;
+		/* Sending block of packets. */
 		bool block_sent = false;
 		while (!block_sent)
 		{
-			static int backoff = 100;
 			block_sent = true;
-			for (int i = /*block_num*/0; i < /*block_num + */BLOCK_SIZE; i++)
+			for (int i = window_pos; i < window_pos + BLOCK_SIZE; i++)
 			{
+				/* Last block of packets may not be full. */
+				if (i == id* (packets_num / 2) + data_size)
+					break;
+
+				ack_buff_mutex.lock();
 				if (ack_buffer[i] == false)
 				{
+					ack_buff_mutex.unlock();
 					block_sent = false;
 					backoff += 100;
 					stdout_mutex.lock();
 					printf("Packet : %d not sent.\n", i);
 					stdout_mutex.unlock();
 
-					packet_header->len = sizeof(udp_header) + ex_udp_d->iph->header_length * 4 + sizeof(ethernet_header);
-
-					/* Last datagram in file is smaller than others? */
-					if ((i + 1)*DATAGRAM_DATA_SIZE <= data_size)
-					{
-						memcpy(ex_udp_d->data, send_data + i*DATAGRAM_DATA_SIZE, DATAGRAM_DATA_SIZE);
-						ex_udp_d->change_data_size(DATAGRAM_DATA_SIZE);
-						packet_header->len += DATAGRAM_DATA_SIZE + 4;
-					}
+					/* Last packet inside packet buffer. */
+					/* window_pos*(id+1) - real position inside packet buffer. */
+					if(i == packets_num-1)
+						pcap_sendpacket(device, send_data[i], last_packet_total_size);
 					else
-					{
-						memcpy(ex_udp_d->data, send_data + i*DATAGRAM_DATA_SIZE, data_size - i*DATAGRAM_DATA_SIZE);
-						ex_udp_d->change_data_size(data_size - i*DATAGRAM_DATA_SIZE);
-						packet_header->len += data_size - i*DATAGRAM_DATA_SIZE + 4;
-					}
-					*(ex_udp_d->seq_number) = htonl(i);
-					pcap_sendpacket(device, packet_data, packet_header->len);
+						pcap_sendpacket(device, send_data[i], total_packet_size);
 				}
-
-				/* All packets sent */
-				if ((i + 1)*DATAGRAM_DATA_SIZE >= data_size)
-					break;
 			}
 			Sleep(backoff);
 		}
-		block_num++;
+		window_pos += BLOCK_SIZE;
 	}
 }
 
