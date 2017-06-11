@@ -104,4 +104,15 @@ typedef struct ex_udp_datagram
 		uh->datagram_length = htons(sizeof(udp_header) + new_data_size + 4);
 	}
 
+	/*ex_udp_datagram& operator=(ex_udp_datagram &udp_d)
+	{
+		eh = udp_d.eh;
+		iph = udp_d.iph;
+		uh = udp_d.uh;
+		seq_number = udp_d.seq_number;
+		data = udp_d.data;
+
+		return *this;
+	}*/
+
 } ex_udp_datagram;
