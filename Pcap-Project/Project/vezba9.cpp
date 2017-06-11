@@ -55,7 +55,8 @@ const int PORT_NUMBER = 27015;
 /* device_handle_out - output device (wi-fi or ethernet adapter). */
 pcap_t* device_handle[INTERFACES_NUMBER];
 
-unsigned char source_eth_addr[6] = { 0x78, 0x0c, 0xb8, 0xf7, 0x71, 0xa0 };
+//unsigned char source_eth_addr[6] = { 0x78, 0x0c, 0xb8, 0xf7, 0x71, 0xa0 };
+unsigned char source_eth_addr[6] = { 0x00, 0xe0, 0x4c, 0x36, 0x33, 0xf6 };
 unsigned char dest_eth_addr[6] = { 0x2c, 0xd0, 0x5a, 0x90, 0xba, 0x9a };
 
 //unsigned char source_ip_addr[4] = {192, 168, 0, 20};
@@ -74,6 +75,9 @@ thread *cap_threads[INTERFACES_NUMBER];
 mutex mx;
 mutex stdout_mutex;
 mutex ack_buff_mutex;
+
+mutex packet_mutex[2000];
+bool packet_sent[2000];
 
 /* Global pointer to data read from file and its lenght, initialized in initialize function.*/
 unsigned char *file_buff;
@@ -102,6 +106,8 @@ unsigned int data_size[INTERFACES_NUMBER];
 
 int main()
 {
+	for (int i = 0; i < 2000; i++)
+		packet_sent[i] = false;
 	//eth_cap_thread = new thread(cap_thread);
 	//eth_cap_thread->detach();
     int i=0;
@@ -260,24 +266,20 @@ int main()
 	*(ex_udp_d->seq_number) = 0;
 
 	/* Creating caputure thread for every interface. */
-	for (int i = 0; i < INTERFACES_NUMBER; i++)
+	/*for (int i = 0; i < INTERFACES_NUMBER; i++)
 	{
 		cap_threads[i] = new thread(cap_thread, device_handle[i], wifi_packet_handler);
 		//eth_cap_thread = new thread(cap_thread, device_handle_eth, eth_packet_handler);
 		cap_threads[i]->detach();
 		//eth_cap_thread->detach();
-	}
+	}*/
 
 	/* Split send data on INTERFACES_NUMBER parts and start send threads. */
 	for (int i = 0; i < INTERFACES_NUMBER; i++)
 	{
-		int tmp = packets_num / 2 * i;
-		send_data[i] = packets + packets_num/2*i;
-		data_size[i] = packets_num / 2 + i*(packets_num % 2);
-		//send_data[1] = packets + packets_num / 2;
-		//data_size[1] = (packets_num % 2 == 0) ? packets_num / 2 : packets_num / 2 + 1;
-		send_threads[i] = new thread(send_thread, device_handle[i], send_data[i], data_size[i], i);
-		//send_threads[1] = new thread(send_thread, device_handle_eth, send_data[1], data_size[1], 1);
+		/*send_data[i] = packets + packets_num/2*i;
+		data_size[i] = packets_num / 2 + i*(packets_num % 2);*/
+		send_threads[i] = new thread(send_thread, device_handle[i], packets, packets_num, i);
 	}
 
 	/* Waiting untill all packets are sent. */
@@ -286,8 +288,11 @@ int main()
 		send_threads[i]->join();
 	}
 	
-	pcap_close(device_handle[0]);
-	pcap_close(device_handle[1]);
+	for (int i = 0; i < INTERFACES_NUMBER; i++)
+	{
+		pcap_close(device_handle[i]);
+	}
+
 	
 	return 0;
 }
@@ -425,11 +430,90 @@ void cap_thread(pcap_t *device, pcap_handler handler)
 	pcap_loop(device, 0, handler, NULL);
 }
 
-
-
 void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_size, unsigned int id)
 {
-	printf("%c\n", send_data[0][0]);
+	ex_udp_datagram watch(send_data[0]);
+	ex_udp_d->change_data_size(sizeof(unsigned int));
+	
+	pcap_pkthdr *recv_packet_header;
+	unsigned char *recv_packet_data;
+
+	int ret = -1;
+	int backoff;
+
+	for (int j = 0; j < data_size-id; j++)
+	{
+		packet_mutex[j+id].lock();
+		/* Packet already sent. */
+		if (packet_sent[j+id] == true)
+		{
+			packet_mutex[j+id].unlock();
+			continue;
+		}
+		packet_sent[j+id] = true;
+		packet_mutex[j+id].unlock();
+			
+		backoff = 0;
+		bool packet_ack = false;
+
+		while (!packet_ack)
+		{
+			/* Last packet inside packet buffer. */
+			if (j+id == packets_num - 1)
+				ret = pcap_sendpacket(device, send_data[j+id], last_packet_total_size);
+			else
+				ret = pcap_sendpacket(device, send_data[j+id], total_packet_size);
+
+			if (ret == -1)
+			{
+				stdout_mutex.lock();
+				printf("Sending packet failed, interface has been disconnected!\n");
+				stdout_mutex.unlock();
+				Sleep(1000);
+			}
+			else
+			{
+				/* Debug */
+				packet_ack = true;
+				/* ACK was not received. */
+				if (pcap_next_ex(device, &recv_packet_header, (const u_char**) &recv_packet_data) != 1)
+				{
+					stdout_mutex.lock();
+					printf("Receiving packet failed, interface has been disconnected!\n"); 
+					stdout_mutex.unlock();
+				}
+				else
+				{
+					watch = ex_udp_datagram(recv_packet_data);
+					/* Check ACK number. */
+					if (*(watch.seq_number) == j+id)
+					{
+						/*packet_mutex[j].lock();
+						packet_sent[j] = true;
+						packet_mutex[j].unlock();*/
+						stdout_mutex.lock();
+						printf("ACK for packet %d received", *(watch.seq_number));
+						stdout_mutex.unlock();
+					}
+					else
+					{
+						stdout_mutex.lock();
+						printf("Wrong ACK received, packet : %d not sent.\n", j+id);
+						stdout_mutex.unlock();
+					}
+				}
+			}
+
+			Sleep(backoff);
+			backoff += 10;
+		}
+	}
+
+}
+
+
+void send_thread2(pcap_t * device, unsigned char **send_data, unsigned int data_size, unsigned int id)
+{
 	ex_udp_datagram watch(send_data[0]);
 	ex_udp_d->change_data_size(sizeof(unsigned int));
 

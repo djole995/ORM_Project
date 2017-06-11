@@ -116,3 +116,15 @@ typedef struct ex_udp_datagram
 	}*/
 
 } ex_udp_datagram;
+
+/*typedef struct PacketsBlock
+{
+	unsigned char **packets;
+	mutex mx;
+	bool ack_received;
+
+	PacketsBlock(unsigned char **_packets)
+	{
+		packets = _packets;
+	}
+} PacketsBlock;*/
