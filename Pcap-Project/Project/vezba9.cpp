@@ -76,9 +76,6 @@ mutex mx;
 mutex stdout_mutex;
 mutex ack_buff_mutex;
 
-mutex packet_mutex[2000];
-bool packet_sent[2000];
-
 /* Global pointer to data read from file and its lenght, initialized in initialize function.*/
 unsigned char *file_buff;
 long file_length;
@@ -89,6 +86,10 @@ unsigned char* packet_data;
 
 /* Packets created from read file data. */
 unsigned char **packets;
+mutex *packet_mutex;
+/* packet status (received or not received). */
+bool *packet_sent;
+
 /* Size of packet including headers, size of extended header itself and number of created packets
 , all initialized in make_packets function. */
 unsigned int total_packet_size;
@@ -106,10 +107,6 @@ unsigned int data_size[INTERFACES_NUMBER];
 
 int main()
 {
-	for (int i = 0; i < 2000; i++)
-		packet_sent[i] = false;
-	//eth_cap_thread = new thread(cap_thread);
-	//eth_cap_thread->detach();
     int i=0;
     int device_number[INTERFACES_NUMBER];
     int sentBytes;
@@ -239,12 +236,6 @@ int main()
 		printf("\n");
 	}
 
-	/*ex_udp_d = new ex_udp_datagram(packets[2]);
-	for (int j = 0; j < 3; j++)
-		printf("%c", ex_udp_d->data[j]);*/
-
-	//packet_data = new unsigned char[DATAGRAM_DATA_SIZE];
-
 	ex_udp_d = new ex_udp_datagram(packet_header, packet_data);
 	/* Setting source and dest eth address.*/
 	for (int i = 0; i < 6; i++)
@@ -353,6 +344,8 @@ void make_packets(unsigned char *input_data, unsigned char ***packets, unsigned 
 		iph = (ip_header*)((*packets)[i] + sizeof(ethernet_header));
 		uh = (udp_header*)((*packets)[i] + iph->header_length * 4 + sizeof(ethernet_header));
 		iph->length = htons(total_packet_size - sizeof(ethernet_header));
+		iph->checksum = 0;
+		iph->checksum = ip_checksum(iph, iph->header_length * 4);
 		uh->datagram_length = htons(total_packet_size - iph->header_length * 4 - sizeof(ethernet_header));
 		uh->src_port = htons(PORT_NUMBER);
 		uh->dest_port = htons(PORT_NUMBER);
@@ -368,6 +361,8 @@ void make_packets(unsigned char *input_data, unsigned char ***packets, unsigned 
 	iph = (ip_header*)((*packets)[packets_num - 1] + sizeof(ethernet_header));
 	uh = (udp_header*)((*packets)[packets_num - 1] + iph->header_length * 4 + sizeof(ethernet_header));
 	iph->length = htons(last_packet_total_size - sizeof(ethernet_header));
+	iph->checksum = 0;
+	iph->checksum = ip_checksum(iph, iph->header_length * 4);
 	uh->datagram_length = htons(last_packet_total_size - iph->header_length * 4 - sizeof(ethernet_header));
 	uh->src_port = htons(PORT_NUMBER);
 	uh->dest_port = htons(PORT_NUMBER);
@@ -378,6 +373,14 @@ void make_packets(unsigned char *input_data, unsigned char ***packets, unsigned 
 	{
 		ack = (u_long *) ((*packets)[i] + header_size - 4);
 		*ack = i+1;
+	}
+
+	packet_mutex = new mutex[packets_num];
+	packet_sent = new bool[packets_num];
+
+	for (int i = 0; i < packets_num; i++)
+	{
+		packet_sent[i] = false;
 	}
 
 	delete udp_d;
@@ -430,6 +433,7 @@ void cap_thread(pcap_t *device, pcap_handler handler)
 	pcap_loop(device, 0, handler, NULL);
 }
 
+
 void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_size, unsigned int id)
 {
 	ex_udp_datagram watch(send_data[0]);
@@ -443,20 +447,20 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 
 	for (int j = 0; j < data_size-id; j++)
 	{
-		packet_mutex[j+id].lock();
 		/* Packet already sent. */
+		packet_mutex[j + id].lock();
 		if (packet_sent[j+id] == true)
 		{
 			packet_mutex[j+id].unlock();
 			continue;
 		}
-		packet_sent[j+id] = true;
+		packet_sent[j + id] = true;
 		packet_mutex[j+id].unlock();
-			
 		backoff = 0;
 		bool packet_ack = false;
 
-		while (!packet_ack)
+		/* Sending packet. */
+		while (true)
 		{
 			/* Last packet inside packet buffer. */
 			if (j+id == packets_num - 1)
@@ -469,7 +473,10 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 				stdout_mutex.lock();
 				printf("Sending packet failed, interface has been disconnected!\n");
 				stdout_mutex.unlock();
-				Sleep(1000);
+				/* Releasing packet, so other interfaces can send it. */
+				packet_mutex[j+id].lock();
+				packet_sent[j + id] = false;
+				packet_mutex[j + id].unlock();
 			}
 			else
 			{
@@ -488,9 +495,6 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 					/* Check ACK number. */
 					if (*(watch.seq_number) == j+id)
 					{
-						/*packet_mutex[j].lock();
-						packet_sent[j] = true;
-						packet_mutex[j].unlock();*/
 						stdout_mutex.lock();
 						printf("ACK for packet %d received", *(watch.seq_number));
 						stdout_mutex.unlock();
@@ -500,12 +504,31 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 						stdout_mutex.lock();
 						printf("Wrong ACK received, packet : %d not sent.\n", j+id);
 						stdout_mutex.unlock();
+						packet_mutex[j + id].lock();
+						packet_sent[j + id] = false;
+						packet_mutex[j + id].unlock();
 					}
 				}
 			}
 
 			Sleep(backoff);
 			backoff += 10;
+			/* Retransmisson */
+			/* Check packet state, it could be already sent by other interfaces. */
+			packet_mutex[j + id].lock();
+			/* Lock packet again. */
+			if (packet_sent[j + id] == false)
+			{
+				packet_sent[j + id] == true;
+				packet_mutex[j + id].unlock();
+				continue;
+			}
+			/* Send next packet. */
+			else
+			{
+				packet_mutex[j + id].unlock();
+				break;
+			}
 		}
 	}
 
@@ -591,6 +614,7 @@ uint16_t ip_checksum(const void *buf, size_t hdr_len)
 		sum += *ip1++;
 		if (sum & 0x80000000)
 			sum = (sum & 0xFFFF) + (sum >> 16);
+		hdr_len -= 2;
 	}
 	
 	while (sum >> 16)
