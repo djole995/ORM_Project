@@ -51,8 +51,8 @@ void calculate_checksum(unsigned char **packets, unsigned int packets_num);
 /* Calculates IPv4 header checksum. */
 uint16_t ip_checksum(const void *buf, size_t hdr_len);
 
-const int BLOCK_SIZE = 10;
-const int DATAGRAM_DATA_SIZE = 10;
+const int BLOCK_SIZE = 1000;
+const int DATAGRAM_DATA_SIZE = 1000;
 const int BUFFER_SIZE_ACK_NUM = 10000;
 const int INTERFACES_NUMBER = 2;
 const int PORT_NUMBER = 27015;
@@ -69,8 +69,8 @@ unsigned char server_mac_addr[INTERFACES_NUMBER][6] = { { 0x78, 0x0c, 0xb8, 0xf7
 unsigned char client_mac_addr/*[INTERFACES_NUMBER]*/[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
 //unsigned char dest_eth_addr[6] = { 0x7c, 0x05, 0x07, 0x24, 0xf8, 0x04 };
 
-unsigned char server_ip_addr[INTERFACES_NUMBER][4] = { {192, 168, 0, 1}, { 169, 254, 176, 100 } };
-unsigned char client_ip_addr[INTERFACES_NUMBER][4] = { { 192, 168, 0, 16 },{ 169, 254, 176, 102 } };
+unsigned char server_ip_addr[INTERFACES_NUMBER][4] = { {192, 168, 0, 14}, { 169, 254, 176, 100 } };
+unsigned char client_ip_addr[INTERFACES_NUMBER][4] = { { 192, 168, 0, 15 },{ 169, 254, 176, 102 } };
 //unsigned char source_ip_addr[4] = { 10, 81, 35, 45 };
 //unsigned char dest_ip_addr[4] = { 10, 81, 35, 43 };
 /*unsigned char eth_source_ip_addr[4] = { 169, 254, 176, 100 };
@@ -131,7 +131,7 @@ int main()
 	unsigned int netmask;
 	int send_option;
 	/* Server ethernet interface filter exp and  Server wifi interface ip filter exp.  */
-	char *filter_exp[INTERFACES_NUMBER] = {"udp port 27015 and ip dst 192.168.0.20", "udp port 27015 and ip dst 169.254.176.100" };
+	char *filter_exp[INTERFACES_NUMBER] = {"udp port 27015 and ip dst 192.168.0.14", "udp port 27015 and ip dst 169.254.176.100" };
 	struct bpf_program fcode[INTERFACES_NUMBER];
 	
 	/**************************************************************/
@@ -439,7 +439,7 @@ void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data
 	FILE *data_file;
 	char error_buffer[PCAP_ERRBUF_SIZE];
 
-	data_file = fopen("data.txt", "ab+");
+	data_file = fopen("sample_and_hold_4x4.png", "ab+");
 
 	if (data_file == NULL)
 	{
@@ -456,6 +456,10 @@ void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data
 
 	fread(file_buff, sizeof(unsigned char), file_length, data_file);
 
+	/*FILE *data_out = fopen("data_out.txt", "wb");
+	fwrite(file_buff, sizeof(unsigned char), file_length, data_out);
+	fclose(data_out);*/
+	fclose(data_file);
 
 	for (int i = 0; i < BLOCK_SIZE; i++)
 	{
@@ -489,7 +493,8 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 	unsigned char *recv_packet_data;
 
 	int ret = -1;
-	int backoff = 1000;
+	int backoff = 100;
+	int speed_test = 400;
 	//Sleep((id - 1) * 2000);
 	/* Send data size. Send until ACK is received from client. */
 	packet_mutex[0].lock();
@@ -497,15 +502,15 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 	{
 		packet_mutex[0].unlock();
 		ret = pcap_sendpacket(device, data_size_packet[id], header_size + sizeof(unsigned int));
-		Sleep(backoff);
-		packet_mutex[0].lock();
-		backoff += 100;
+		Sleep(speed_test);
+		speed_test += 400;
+		packet_mutex[0].lock();	
 	}
 	packet_mutex[0].unlock();
 
+	backoff = speed_test;
 
-
-	for (int j = 0; j < data_size; j++)
+	for (int j = 0/*id*data_size/2*/; j < /*id*data_size/2 + data_size/2 + (*/data_size/* % 2)*/; j++)
 	{
 		/* Packet already sent. */
 		packet_mutex[j + 1].lock();
@@ -515,7 +520,7 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 			continue;
 		}
 		packet_mutex[j+1].unlock();
-		backoff = 1000;
+		backoff = speed_test;
 		bool packet_ack = false;
 
 		/* Sending packet. */
