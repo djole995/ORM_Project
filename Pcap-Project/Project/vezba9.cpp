@@ -279,11 +279,11 @@ int main()
 	}
 
 	/* Split send data on INTERFACES_NUMBER parts and start send threads. */
-	for (int i = 0; i < INTERFACES_NUMBER-1; i++)
+	for (int i = 0; i < INTERFACES_NUMBER; i++)
 	{
 		/*send_data[i] = packets + packets_num/2*i;
 		data_size[i] = packets_num / 2 + i*(packets_num % 2);*/
-		send_threads[i] = new thread(send_thread, device_handle[i], packets, packets_num, i+1);
+		send_threads[i] = new thread(send_thread, device_handle[i], packets, packets_num, i);
 	}
 
 	/* Waiting untill all packets are sent. */
@@ -404,8 +404,10 @@ void make_packets(unsigned char *input_data, unsigned char ***packets, unsigned 
 	ack = (u_long *)(data_size_packet + header_size - 4);
 	*ack = htonl(0);
 
-	packet_mutex = new mutex[packets_num];
-	packet_sent = new bool[packets_num];
+	/* initialiting packets state (ACK received) buffer and its locks. 
+	Size is packets_num+1 (one additional element for data_size packet. */
+	packet_mutex = new mutex[packets_num+1];
+	packet_sent = new bool[packets_num+1];
 
 	for (int i = 0; i < packets_num; i++)
 	{
@@ -505,104 +507,67 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 	unsigned char *recv_packet_data;
 
 	int ret = -1;
-	int backoff;
-
+	int backoff = 1000;
+	//Sleep((id - 1) * 2000);
 	/* Send data size. Send until ACK is received from client. */
 	packet_mutex[0].lock();
 	while (ret != 0 || packet_sent[0] == false)
 	{
 		packet_mutex[0].unlock();
 		ret = pcap_sendpacket(device, data_size_packet, header_size + sizeof(unsigned int));
-		Sleep(100);
+		Sleep(backoff);
 		packet_mutex[0].lock();
+		backoff += 100;
 	}
 	packet_mutex[0].unlock();
 
 
 
-	for (int j = 0; j < data_size-id; j++)
+	for (int j = id; j < data_size; j++)
 	{
 		/* Packet already sent. */
-		packet_mutex[j + id + 1].lock();
-		if (packet_sent[j+id + 1] == true)
+		packet_mutex[j + 1].lock();
+		if (packet_sent[j + 1] == true)
 		{
-			packet_mutex[j+id + 1].unlock();
+			packet_mutex[j + 1].unlock();
 			continue;
 		}
-		//packet_sent[j + id] = true;
-		packet_mutex[j+id +1].unlock();
-		backoff = 500;
+		packet_mutex[j+1].unlock();
+		backoff = 1000;
 		bool packet_ack = false;
 
 		/* Sending packet. */
 		while (true)
 		{
 			/* Last packet inside packet buffer. */
-			if (j+id == packets_num - 1)
-				ret = pcap_sendpacket(device, send_data[j+id], last_packet_total_size);
+			if (j == packets_num - 1)
+				ret = pcap_sendpacket(device, send_data[j], last_packet_total_size);
 			else
-				ret = pcap_sendpacket(device, send_data[j+id], total_packet_size);
+				ret = pcap_sendpacket(device, send_data[j], total_packet_size);
 
 			if (ret == -1)
 			{
 				stdout_mutex.lock();
 				printf("Sending packet failed, interface has been disconnected!\n");
 				stdout_mutex.unlock();
-				/* Releasing packet, so other interfaces can send it. */
-				/*packet_mutex[j+id].lock();
-				packet_sent[j + id] = false;
-				packet_mutex[j + id].unlock();*/
-			}
-			else
-			{
-				/* Debug */
-				//packet_ack = true;
-				/* ACK was not received. */
-				/*if (pcap_next_ex(device, &recv_packet_header, (const u_char**) &recv_packet_data) != 1)
-				{
-					stdout_mutex.lock();
-					printf("Receiving packet failed, interface has been disconnected!\n"); 
-					stdout_mutex.unlock();
-				}*/
-				/*else
-				{
-					watch = ex_udp_datagram(recv_packet_data);*/
-					/* Check ACK number. */
-					/*if (*(watch.seq_number) == j+id)
-					{
-						stdout_mutex.lock();
-						printf("ACK for packet %d received", *(watch.seq_number));
-						stdout_mutex.unlock();
-					}
-					else
-					{
-						stdout_mutex.lock();
-						printf("Wrong ACK received, packet : %d not sent.\n", j+id);
-						stdout_mutex.unlock();
-						packet_mutex[j + id].lock();
-						packet_sent[j + id] = false;
-						packet_mutex[j + id].unlock();
-					}*/
-				//}
+				Sleep(4000);
 			}
 
-			printf("aaa");
 			Sleep(backoff);
-			printf("bbb");
-			backoff += 500;
+			backoff += 100;
 			/* Retransmisson */
 			/* Check packet state, it could be already sent by other interfaces. */
-			packet_mutex[j + id + 1].lock();
+			packet_mutex[j + 1].lock();
 			/* Lock packet again. */
-			if (packet_sent[j + id + 1] == true)
+			if (packet_sent[j + 1] == true)
 			{
-				packet_mutex[j + id + 1].unlock();
+				packet_mutex[j + 1].unlock();
 				break;
 			}
 			/* Send next packet. */
 			else
 			{
-				packet_mutex[j + id + 1].unlock();
+				packet_mutex[j + 1].unlock();
 				continue;
 			}
 		}
