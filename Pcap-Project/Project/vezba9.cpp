@@ -278,7 +278,6 @@ int main()
 		pcap_close(device_handle[i]);
 	}
 
-	
 	return 0;
 }
 
