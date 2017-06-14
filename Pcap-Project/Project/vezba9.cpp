@@ -61,15 +61,22 @@ const int PORT_NUMBER = 27015;
 /* device_handle_out - output device (wi-fi or ethernet adapter). */
 pcap_t* device_handle[INTERFACES_NUMBER];
 
-unsigned char source_eth_addr[6] = { 0x78, 0x0c, 0xb8, 0xf7, 0x71, 0xa0 };
-//unsigned char source_eth_addr[6] = { 0x00, 0xe0, 0x4c, 0x36, 0x33, 0xf6 };
-unsigned char dest_eth_addr[6] = { 0x2c, 0xd0, 0x5a, 0x90, 0xba, 0x9a };
+unsigned char eth_source_mac_addr[6] = { 0x78, 0x0c, 0xb8, 0xf7, 0x71, 0xa0 };
+//unsigned char source_wifi_addr[6] = {}
+//unsigned char wifi_source_mac_addr[6] = { 0x00, 0xe0, 0x4c, 0x36, 0x33, 0xf6 };
+unsigned char server_mac_addr[INTERFACES_NUMBER][6] = { { 0x78, 0x0c, 0xb8, 0xf7, 0x71, 0xa0 }, { 0x00, 0xe0, 0x4c, 0x36, 0x33, 0xf6 } };
+//unsigned char dest_eth_addr[6] = { 0x2c, 0xd0, 0x5a, 0x90, 0xba, 0x9a };
+unsigned char client_mac_addr/*[INTERFACES_NUMBER]*/[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
 //unsigned char dest_eth_addr[6] = { 0x7c, 0x05, 0x07, 0x24, 0xf8, 0x04 };
 
-unsigned char source_ip_addr[4] = {192, 168, 0, 14};
-//unsigned char source_ip_addr[4] = { 169, 254, 176, 100 };
-unsigned char dest_ip_addr[4] = { 192, 168, 0, 10 };
-//unsigned char dest_ip_addr[4] = { 169, 254, 176, 101 };
+unsigned char server_ip_addr[INTERFACES_NUMBER][4] = { {192, 168, 0, 1}, { 169, 254, 176, 100 } };
+unsigned char client_ip_addr[INTERFACES_NUMBER][4] = { { 192, 168, 0, 16 },{ 169, 254, 176, 102 } };
+//unsigned char source_ip_addr[4] = { 10, 81, 35, 45 };
+//unsigned char dest_ip_addr[4] = { 10, 81, 35, 43 };
+/*unsigned char eth_source_ip_addr[4] = { 169, 254, 176, 100 };
+unsigned char eth_dest_ip_addr[4] = { 169, 254, 176, 101 };*/
+//unsigned char dest_ip_addr[4] = { 192, 168, 0, 9 };
+/*unsigned char wifi_dest_ip_addr[4] = { 192, 168, 0, 14 };*/
 
 /* ACK buffer. First element represent ACK for sent data size, others are ACKs for user datagrams. */
 bool ack_buffer[2000];
@@ -92,8 +99,8 @@ struct pcap_pkthdr* packet_header;
 unsigned char* packet_data;
 
 /* Packets created from read file data. */
-unsigned char *data_size_packet;
-unsigned char **packets;
+unsigned char *data_size_packet[INTERFACES_NUMBER];
+unsigned char **packets[INTERFACES_NUMBER];
 mutex *packet_mutex;
 /* packet status (received or not received). */
 bool *packet_sent;
@@ -123,9 +130,9 @@ int main()
 	char error_buffer [PCAP_ERRBUF_SIZE];
 	unsigned int netmask;
 	int send_option;
-
-	char filter_exp[] = "ip dst 192.168.0.14 and udp port 27015";
-	struct bpf_program fcode;
+	/* Server ethernet interface filter exp and  Server wifi interface ip filter exp.  */
+	char *filter_exp[INTERFACES_NUMBER] = {"udp port 27015 and ip dst 192.168.0.20", "udp port 27015 and ip dst 169.254.176.100" };
+	struct bpf_program fcode[INTERFACES_NUMBER];
 	
 	/**************************************************************/
 	//Retrieve the device list on the local machine 
@@ -209,14 +216,14 @@ int main()
 
 
 		// Compile the filter    
-		if (pcap_compile(device_handle[j], &fcode, filter_exp, 1, netmask) < 0)
+		if (pcap_compile(device_handle[j], &fcode[j], filter_exp[j], 1, netmask) < 0)
 		{
 			printf("\n Unable to compile the packet filter. Check the syntax.\n");
 			return -1;
 		}
 
 		// Set the filter
-		if (pcap_setfilter(device_handle[j], &fcode) < 0)
+		if (pcap_setfilter(device_handle[j], &fcode[j]) < 0)
 		{
 			printf("\n Error setting the filter.\n");
 			return -1;
@@ -225,65 +232,39 @@ int main()
 
 	/* Read generic udp packet and read raw data file. */
 	initiallize(&packet_header, &packet_data);
-	/* Split file data into packes of DATAGRAM_DATA_SIZE size. */
-	make_packets(file_buff, &packets, packet_data, packet_header, file_length, DATAGRAM_DATA_SIZE);
 
-	set_addresses(packets, packets_num, source_eth_addr, dest_eth_addr, source_ip_addr, dest_ip_addr);
-	set_addresses(&data_size_packet, 1, source_eth_addr, dest_eth_addr, source_ip_addr, dest_ip_addr);
-	calculate_checksum(packets, packets_num);
-	calculate_checksum(&data_size_packet, 1);
-
-	ex_udp_datagram ex_udp_d2(packets[0]);
-
-	ex_udp_d2 = ex_udp_datagram(packets[1]);
-
-	for (int i = 0; i < packets_num; i++)
+	for (int i = 0; i < INTERFACES_NUMBER; i++)
 	{
-			ex_udp_d2 = ex_udp_datagram(packets[i]);
-			for (int j = 0; j < DATAGRAM_DATA_SIZE; j++)
-			{
-				printf("%c", ex_udp_d2.data[j]);
-				
-			}
-			printf("\n%d", *ex_udp_d2.seq_number);
-		printf("\n");
+		/* Split file data into packes of DATAGRAM_DATA_SIZE size. */
+		make_packets(file_buff, &packets[i], packet_data, packet_header, file_length, DATAGRAM_DATA_SIZE);
+		set_addresses(packets[i], packets_num, server_mac_addr[i], client_mac_addr, server_ip_addr[i], client_ip_addr[i]);
+		set_addresses(&data_size_packet[i], 1, server_mac_addr[i], client_mac_addr, server_ip_addr[i], client_ip_addr[i]);
+		calculate_checksum(packets[i], packets_num);
+		calculate_checksum(&data_size_packet[i], 1);
 	}
 
-	ex_udp_d = new ex_udp_datagram(packet_header, packet_data);
-	/* Setting source and dest eth address.*/
-	for (int i = 0; i < 6; i++)
+	for (int i = 0; i < INTERFACES_NUMBER; i++)
 	{
-		ex_udp_d->eh->src_address[i] = source_eth_addr[i];
-		ex_udp_d->eh->dest_address[i] = dest_eth_addr[i];
+		/* Set addresses and calculate checksum for data size packet. */
+		set_addresses(&data_size_packet[i], 1, server_mac_addr[i], client_mac_addr, server_ip_addr[i], client_ip_addr[i]);
+		calculate_checksum(&data_size_packet[i], 1);
 	}
 
-	for (int i = 0; i < 4; i++)
-	{
-		ex_udp_d->iph->src_addr[i] = source_ip_addr[i];
-		ex_udp_d->iph->dst_addr[i] = dest_ip_addr[i];
-	}
+	ex_udp_datagram ex_udp_d2(packets[0][0]);
 
-	ex_udp_d->uh->dest_port = htons(27015);
-	ex_udp_d->uh->src_port = htons(27015);
-
-	int tmp = ntohs(ex_udp_d->uh->datagram_length) - sizeof(udp_header);
-	*(ex_udp_d->seq_number) = 0;
+	ex_udp_d2 = ex_udp_datagram(packets[1][0]);
 
 	/* Creating caputure thread for every interface. */
-	for (int i = 0; i < INTERFACES_NUMBER-1; i++)
+	for (int i = 0; i < INTERFACES_NUMBER; i++)
 	{
 		cap_threads[i] = new thread(cap_thread, device_handle[i], wifi_packet_handler);
-		//eth_cap_thread = new thread(cap_thread, device_handle_eth, eth_packet_handler);
 		cap_threads[i]->detach();
-		//eth_cap_thread->detach();
 	}
 
 	/* Split send data on INTERFACES_NUMBER parts and start send threads. */
 	for (int i = 0; i < INTERFACES_NUMBER; i++)
 	{
-		/*send_data[i] = packets + packets_num/2*i;
-		data_size[i] = packets_num / 2 + i*(packets_num % 2);*/
-		send_threads[i] = new thread(send_thread, device_handle[i], packets, packets_num, i);
+		send_threads[i] = new thread(send_thread, device_handle[i], packets[i], packets_num, i);
 	}
 
 	/* Waiting untill all packets are sent. */
@@ -376,21 +357,27 @@ void make_packets(unsigned char *input_data, unsigned char ***packets, unsigned 
 	uh->src_port = htons(PORT_NUMBER);
 	uh->dest_port = htons(PORT_NUMBER);
 
-	/* Creating data size packet. */
-	data_size_packet = new unsigned char[header_size + sizeof(unsigned int)];
-	/* Copy header from generic packet. */
-	memcpy(data_size_packet, udp_packet_data, header_size);
-	/* Copy raw data. */
-	unsigned int *data_size = (unsigned int*)(data_size_packet + header_size);
-	*data_size = htonl(packets_num);
-	/* Setting header fields which indicates packet size. */
-	iph = (ip_header*)(data_size_packet + sizeof(ethernet_header));
-	uh = (udp_header*)(data_size_packet + iph->header_length * 4 + sizeof(ethernet_header));
-	iph->length = htons(header_size + sizeof(unsigned int) - sizeof(ethernet_header));
-	uh->datagram_length = htons(header_size + sizeof(unsigned int) - iph->header_length * 4 - sizeof(ethernet_header));
-	uh->src_port = htons(PORT_NUMBER);
-	uh->dest_port = htons(PORT_NUMBER);
+	/* Creating data size packet for every interface. */
+	for (int i = 0; i < INTERFACES_NUMBER; i++)
+	{
+		data_size_packet[i] = new unsigned char[header_size + sizeof(unsigned int)];
+		/* Copy header from generic packet. */
+		memcpy(data_size_packet[i], udp_packet_data, header_size);
+		/* Copy raw data. */
+		unsigned int *data_size = (unsigned int*)(data_size_packet[i] + header_size);
+		*data_size = htonl(packets_num);
+		/* Setting header fields which indicates packet size. */
+		iph = (ip_header*)(data_size_packet[i] + sizeof(ethernet_header));
+		uh = (udp_header*)(data_size_packet[i] + iph->header_length * 4 + sizeof(ethernet_header));
+		iph->length = htons(header_size + sizeof(unsigned int) - sizeof(ethernet_header));
+		uh->datagram_length = htons(header_size + sizeof(unsigned int) - iph->header_length * 4 - sizeof(ethernet_header));
+		uh->src_port = htons(PORT_NUMBER);
+		uh->dest_port = htons(PORT_NUMBER);
 
+		/* Set data size packet ack number (0). */
+		u_long *ack = (u_long *)(data_size_packet[i] + header_size - 4);
+		*ack = htonl(0);
+	}
 
 	/* Enumerating packets (setting ACK nums in extended udp header). */
 	u_long *ack;
@@ -399,10 +386,6 @@ void make_packets(unsigned char *input_data, unsigned char ***packets, unsigned 
 		ack = (u_long *) ((*packets)[i] + header_size - 4);
 		*ack = htonl(i+1);
 	}
-
-	/* Set data size packet ack number (0). */
-	ack = (u_long *)(data_size_packet + header_size - 4);
-	*ack = htonl(0);
 
 	/* initialiting packets state (ACK received) buffer and its locks. 
 	Size is packets_num+1 (one additional element for data_size packet. */
@@ -500,8 +483,7 @@ void cap_thread(pcap_t *device, pcap_handler handler)
 
 void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_size, unsigned int id)
 {
-	ex_udp_datagram watch(data_size_packet);
-	ex_udp_d->change_data_size(sizeof(unsigned int));
+	ex_udp_datagram watch(data_size_packet[id]);
 	
 	pcap_pkthdr *recv_packet_header;
 	unsigned char *recv_packet_data;
@@ -514,7 +496,7 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 	while (ret != 0 || packet_sent[0] == false)
 	{
 		packet_mutex[0].unlock();
-		ret = pcap_sendpacket(device, data_size_packet, header_size + sizeof(unsigned int));
+		ret = pcap_sendpacket(device, data_size_packet[id], header_size + sizeof(unsigned int));
 		Sleep(backoff);
 		packet_mutex[0].lock();
 		backoff += 100;
@@ -523,7 +505,7 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 
 
 
-	for (int j = id; j < data_size; j++)
+	for (int j = 0; j < data_size; j++)
 	{
 		/* Packet already sent. */
 		packet_mutex[j + 1].lock();
@@ -550,7 +532,7 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 				stdout_mutex.lock();
 				printf("Sending packet failed, interface has been disconnected!\n");
 				stdout_mutex.unlock();
-				Sleep(4000);
+				Sleep(5000);
 			}
 
 			Sleep(backoff);

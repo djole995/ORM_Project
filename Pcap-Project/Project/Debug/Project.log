@@ -1,16 +1,15 @@
 ﻿  vezba9.cpp
-d:\orm_project\pcap-project\project\vezba9.cpp(240): warning C4018: '<': signed/unsigned mismatch
-d:\orm_project\pcap-project\project\vezba9.cpp(120): warning C4101: 'sentBytes': unreferenced local variable
-d:\orm_project\pcap-project\project\vezba9.cpp(336): warning C4244: '=': conversion from 'double' to 'unsigned int', possible loss of data
-d:\orm_project\pcap-project\project\vezba9.cpp(349): warning C4018: '<': signed/unsigned mismatch
-d:\orm_project\pcap-project\project\vezba9.cpp(397): warning C4018: '<': signed/unsigned mismatch
-d:\orm_project\pcap-project\project\vezba9.cpp(412): warning C4018: '<': signed/unsigned mismatch
-d:\orm_project\pcap-project\project\vezba9.cpp(424): warning C4018: '<': signed/unsigned mismatch
-d:\orm_project\pcap-project\project\vezba9.cpp(445): warning C4018: '<': signed/unsigned mismatch
-d:\orm_project\pcap-project\project\vezba9.cpp(526): warning C4018: '<': signed/unsigned mismatch
-d:\orm_project\pcap-project\project\vezba9.cpp(507): warning C4101: 'recv_packet_data': unreferenced local variable
-d:\orm_project\pcap-project\project\vezba9.cpp(506): warning C4101: 'recv_packet_header': unreferenced local variable
-d:\orm_project\pcap-project\project\vezba9.cpp(664): warning C4244: 'return': conversion from 'unsigned long' to 'uint16_t', possible loss of data
+d:\orm_project\pcap-project\project\vezba9.cpp(127): warning C4101: 'sentBytes': unreferenced local variable
+d:\orm_project\pcap-project\project\vezba9.cpp(321): warning C4244: '=': conversion from 'double' to 'unsigned int', possible loss of data
+d:\orm_project\pcap-project\project\vezba9.cpp(334): warning C4018: '<': signed/unsigned mismatch
+d:\orm_project\pcap-project\project\vezba9.cpp(388): warning C4018: '<': signed/unsigned mismatch
+d:\orm_project\pcap-project\project\vezba9.cpp(399): warning C4018: '<': signed/unsigned mismatch
+d:\orm_project\pcap-project\project\vezba9.cpp(411): warning C4018: '<': signed/unsigned mismatch
+d:\orm_project\pcap-project\project\vezba9.cpp(432): warning C4018: '<': signed/unsigned mismatch
+d:\orm_project\pcap-project\project\vezba9.cpp(512): warning C4018: '<': signed/unsigned mismatch
+d:\orm_project\pcap-project\project\vezba9.cpp(493): warning C4101: 'recv_packet_data': unreferenced local variable
+d:\orm_project\pcap-project\project\vezba9.cpp(492): warning C4101: 'recv_packet_header': unreferenced local variable
+d:\orm_project\pcap-project\project\vezba9.cpp(650): warning C4244: 'return': conversion from 'unsigned long' to 'uint16_t', possible loss of data
 vezba9.obj : warning LNK4075: ignoring '/EDITANDCONTINUE' due to '/INCREMENTAL:NO' specification
   Project.vcxproj -> D:\ORM_Project\Pcap-Project\Project\.\Debug\Project.exe
   Project.vcxproj -> .\Debug\Project.pdb (Full PDB)
