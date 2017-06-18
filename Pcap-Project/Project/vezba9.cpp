@@ -19,17 +19,14 @@
 #include <thread>
 #include <condition_variable>
 #include <mutex>
-#include <pcap.h>
-#include "protocol_headers.h"
-#include <vector>
-#include <Windows.h>
-#include <windef.h>
+#include "Functions.h"
+
 
 using namespace std;
+using namespace chrono;
 
 /* Packet handlers for captured packets on ethernet and wifi adapters. */
-void wifi_packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header, const unsigned char* packet_data);
-void eth_packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header, const unsigned char* packet_data);
+void packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header, const unsigned char* packet_data);
 
 /* Read recorded udp datagram. */
 void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data);
@@ -37,23 +34,16 @@ void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data
 /* Capture packets on device which are processed with given packet handler. */
 void cap_thread(pcap_t *device, pcap_handler handler);
 
+/* Send data throught given device. */
 void send_thread(pcap_t *device, unsigned char** send_data, unsigned int data_size, unsigned int id);
 
+/* Split data into packets of choosen size and initiallize some global variables. */
 void make_packets(unsigned char *input_data, unsigned char ***packets, unsigned char *udp_packet_data, 
 	struct pcap_pkthdr *udp_packet_header, unsigned int data_size, unsigned int packet_data_size);
+/* Free dynamically allocated memory. */
+void free_resources();
 
-/* Sets packets source and destination addresses. */
-void set_addresses(unsigned char **packets, unsigned int packets_num, unsigned char eth_src_addr[], unsigned char eth_dst_addr[],
-	unsigned char ip_src_addr[], unsigned char ip_dst_addr[]);
-
-void calculate_checksum(unsigned char **packets, unsigned int packets_num);
-
-/* Calculates IPv4 header checksum. */
-uint16_t ip_checksum(const void *buf, size_t hdr_len);
-
-const int BLOCK_SIZE = 1000;
-const int DATAGRAM_DATA_SIZE = 1000;
-const int BUFFER_SIZE_ACK_NUM = 10000;
+const int DATAGRAM_DATA_SIZE = 1400;
 const int INTERFACES_NUMBER = 2;
 const int PORT_NUMBER = 27015;
 
@@ -62,23 +52,11 @@ const int PORT_NUMBER = 27015;
 pcap_t* device_handle[INTERFACES_NUMBER];
 
 unsigned char eth_source_mac_addr[6] = { 0x78, 0x0c, 0xb8, 0xf7, 0x71, 0xa0 };
-//unsigned char source_wifi_addr[6] = {}
-//unsigned char wifi_source_mac_addr[6] = { 0x00, 0xe0, 0x4c, 0x36, 0x33, 0xf6 };
 unsigned char server_mac_addr[INTERFACES_NUMBER][6] = { { 0x78, 0x0c, 0xb8, 0xf7, 0x71, 0xa0 }, { 0x00, 0xe0, 0x4c, 0x36, 0x33, 0xf6 } };
-//unsigned char dest_eth_addr[6] = { 0x2c, 0xd0, 0x5a, 0x90, 0xba, 0x9a };
-unsigned char client_mac_addr/*[INTERFACES_NUMBER]*/[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
-//unsigned char dest_eth_addr[6] = { 0x7c, 0x05, 0x07, 0x24, 0xf8, 0x04 };
+unsigned char client_mac_addr[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
 
-unsigned char server_ip_addr[INTERFACES_NUMBER][4] = { {192, 168, 0, 14}, { 169, 254, 176, 100 } };
-unsigned char client_ip_addr[INTERFACES_NUMBER][4] = { { 192, 168, 0, 15 },{ 169, 254, 176, 102 } };
-//unsigned char source_ip_addr[4] = { 10, 81, 35, 45 };
-//unsigned char dest_ip_addr[4] = { 10, 81, 35, 43 };
-/*unsigned char eth_source_ip_addr[4] = { 169, 254, 176, 100 };
-unsigned char eth_dest_ip_addr[4] = { 169, 254, 176, 101 };*/
-//unsigned char dest_ip_addr[4] = { 192, 168, 0, 9 };
-/*unsigned char wifi_dest_ip_addr[4] = { 192, 168, 0, 14 };*/
-
-unsigned char ack_buffer[2000];
+unsigned char server_ip_addr[INTERFACES_NUMBER][4] = { {192, 168, 0, 17}, { 169, 254, 176, 100 } };
+unsigned char client_ip_addr[INTERFACES_NUMBER][4] = { { 192, 168, 0, 16 },{ 169, 254, 176, 102 } };
 
 /* Parallel output stream threads. */
 thread *send_threads[INTERFACES_NUMBER];
@@ -104,14 +82,13 @@ mutex *packet_mutex;
 mutex *packet_send_lock;
 /* packet status (received or not received). */
 bool *packet_sent;
-/* Packet which sending procedure is broken when network adapter is disconnected. */
-unsigned int unsent_packet[INTERFACES_NUMBER] = { -1, -1 };
 
 /* Size of packet including headers, size of extended header itself and number of created packets
 , all initialized in make_packets function. */
 unsigned int total_packet_size;
 /* Last packet may be smaller than others. */
 unsigned int last_packet_total_size;
+/* Number of packets created, initiallized in make packets functions. */
 unsigned int packets_num;
 unsigned int header_size;
 
@@ -119,8 +96,10 @@ ex_udp_datagram* ex_udp_d;
 
 /* Data sent via wifi and ethernet. */
 unsigned char **send_data[INTERFACES_NUMBER];
-/* Number of packets sent on every network interfaces. */
-unsigned int data_size[INTERFACES_NUMBER];
+
+/* Number of packets sent by every network interface, used for statistics. */
+unsigned int eth_packet_cnt = 0;
+unsigned int wifi_packet_cnt = 0;
 
 int main()
 {
@@ -133,7 +112,7 @@ int main()
 	unsigned int netmask;
 	int send_option;
 	/* Server ethernet interface filter exp and  Server wifi interface ip filter exp.  */
-	char *filter_exp[INTERFACES_NUMBER] = {"udp port 27015 and ip dst 192.168.0.14", "udp port 27015 and ip dst 169.254.176.100" };
+	char *filter_exp[INTERFACES_NUMBER] = {"udp port 27015 and ip dst 192.168.0.17", "udp port 27015 and ip dst 169.254.176.100" };
 	struct bpf_program fcode[INTERFACES_NUMBER];
 	
 	/**************************************************************/
@@ -164,14 +143,16 @@ int main()
 	printf("Enter send option (1 - Serial, 2 - Parallel):\n");
 	scanf("%d", &send_option);
 	// Pick one device from the list
-	printf("Enter the output interface(s) number (1-%d):",i);
+	printf("\t\tEnter the output interfaces number (1-%d):\n",i);
 	if (send_option == 1)
 	{
 		scanf("%d", &device_number[0]);
 	}
 	else
 	{
+		printf("Enter WiFi interface number: ");
 		scanf("%d", &device_number[0]);
+		printf("Enter Ethernet interface number: ");
 		scanf("%d", &device_number[1]);
 	}
 
@@ -214,8 +195,7 @@ int main()
 			netmask = 0;
 		else
 			netmask = ((struct sockaddr_in *)(device->addresses->netmask))->sin_addr.s_addr;
-
-
+		
 
 		// Compile the filter    
 		if (pcap_compile(device_handle[j], &fcode[j], filter_exp[j], 1, netmask) < 0)
@@ -252,17 +232,14 @@ int main()
 		calculate_checksum(&data_size_packet[i], 1);
 	}
 
-	ex_udp_datagram ex_udp_d2(packets[0][0]);
-
-	ex_udp_d2 = ex_udp_datagram(packets[1][0]);
-
 	/* Creating caputure thread for every interface. */
 	for (int i = 0; i < INTERFACES_NUMBER; i++)
 	{
-		cap_threads[i] = new thread(cap_thread, device_handle[i], wifi_packet_handler);
+		cap_threads[i] = new thread(cap_thread, device_handle[i], packet_handler);
 		cap_threads[i]->detach();
 	}
 
+	system_clock::time_point start = system_clock::now();
 	/* Split send data on INTERFACES_NUMBER parts and start send threads. */
 	for (int i = 0; i < INTERFACES_NUMBER; i++)
 	{
@@ -274,17 +251,29 @@ int main()
 	{
 		send_threads[i]->join();
 	}
+
+	system_clock::time_point stop = system_clock::now();
+
+	/* Mesaure send time. */
+	duration<double> send_time = stop - start;
+
+	printf("All packets sent in %lf seconds.\n", send_time.count());
+
+	printf("Number of packets sent via ethernet : %d\n", eth_packet_cnt);
+	printf("Number of packets sent via wifi : %d\n", wifi_packet_cnt);
 	
 	for (int i = 0; i < INTERFACES_NUMBER; i++)
 	{
 		pcap_close(device_handle[i]);
 	}
 
+	free_resources();
+
 	return 0;
 }
 
 // Callback function invoked by libpcap/WinPcap for every incoming packet
-void wifi_packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header, const unsigned char* packet_data)
+void packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header, const unsigned char* packet_data)
 {
 	ex_udp_datagram* rec_packet;
 	rec_packet = new ex_udp_datagram(packet_header, packet_data);
@@ -294,27 +283,16 @@ void wifi_packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_h
 	packet_sent[ack_num] = true;
 	packet_mutex[ack_num].unlock();
 
-	/*stdout_mutex.lock();
-	printf("WiFi: ACK number %d \n", ack_num);
-	stdout_mutex.unlock();*/
+	if (rec_packet->iph->dst_addr[0] == 169)
+		eth_packet_cnt++;
+	else
+		wifi_packet_cnt++;
 }
 
-void eth_packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header, const unsigned char* packet_data)
-{
-	ex_udp_datagram* rec_packet;
-	rec_packet = new ex_udp_datagram(packet_header, packet_data);
-	u_long* ack_num = rec_packet->seq_number;
-
-	ack_buffer[ntohl(*ack_num)] = true;
-
-	stdout_mutex.lock();
-	printf("Eth : ACK number %d \n", ntohl(*ack_num));
-	stdout_mutex.unlock();
-}
-
-/* Split data to packets. Return number of packets created. */
+/* Split data to packets. */
 void make_packets(unsigned char *input_data, unsigned char ***packets, unsigned char *udp_packet_data, struct pcap_pkthdr *udp_packet_header, unsigned int input_data_size, unsigned int packet_data_size)
 {
+
 	packets_num = ceil(double(input_data_size) / packet_data_size);
 	*packets = new unsigned char*[packets_num];
 
@@ -394,6 +372,7 @@ void make_packets(unsigned char *input_data, unsigned char ***packets, unsigned 
 	packet_send_lock = new mutex[packets_num];
 	packet_sent = new bool[packets_num+1];
 
+	/* initiallize packets ACK buffer (all unconfirmed). */
 	for (int i = 0; i < packets_num; i++)
 	{
 		packet_sent[i] = false;
@@ -402,37 +381,22 @@ void make_packets(unsigned char *input_data, unsigned char ***packets, unsigned 
 	delete udp_d;
 }
 
-void set_addresses(unsigned char ** packets, unsigned int packets_num, unsigned char eth_src_addr[], unsigned char eth_dst_addr[], unsigned char ip_src_addr[], unsigned char ip_dst_addr[])
+void free_resources()
 {
-	ip_header *iph;
-	ethernet_header *eh;
-	for (int i = 0; i < packets_num; i++)
-	{
-		eh = (ethernet_header*)packets[i];
-		iph = (ip_header*) (packets[i] + sizeof(ethernet_header));
-		for (int i = 0; i < 6; i++)
-		{
-			eh->dest_address[i] = eth_dst_addr[i];
-			eh->src_address[i] = eth_src_addr[i];
-		}
+	delete packet_sent;
 
-		for (int i = 0; i < 4; i++)
-		{
-			iph->dst_addr[i] = ip_dst_addr[i];
-			iph->src_addr[i] = ip_src_addr[i];
-		}
-	}
-}
-
-void calculate_checksum(unsigned char **packets, unsigned int packets_num)
-{
-	ip_header *iph;
-	for (int i = 0; i < packets_num; i++)
+	for (int i = 0; i < INTERFACES_NUMBER; i++)
 	{
-		iph = (ip_header*)(packets[i] + sizeof(ethernet_header));
-		iph->checksum = 0;
-		iph->checksum = ip_checksum(iph, iph->header_length * 4);
+		for (int j = 0; j < packets_num; j++)
+			delete packets[i][j];
+		delete[] packets[i];
+
+		delete cap_threads[i];
+		delete send_threads[i];
+		delete data_size_packet[i];
 	}
+
+	delete file_buff;
 }
 
 void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data) 
@@ -441,7 +405,7 @@ void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data
 	FILE *data_file;
 	char error_buffer[PCAP_ERRBUF_SIZE];
 
-	data_file = fopen("sample_and_hold_4x4.png", "ab+");
+	data_file = fopen("dog5.wav", "rb+");
 
 	if (data_file == NULL)
 	{
@@ -457,16 +421,7 @@ void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data
 	file_buff = new unsigned char[file_length];
 
 	fread(file_buff, sizeof(unsigned char), file_length, data_file);
-
-	/*FILE *data_out = fopen("data_out.txt", "wb");
-	fwrite(file_buff, sizeof(unsigned char), file_length, data_out);
-	fclose(data_out);*/
 	fclose(data_file);
-
-	for (int i = 0; i < BLOCK_SIZE; i++)
-	{
-		ack_buffer[i] = false;
-	}
 	
 	if ((device_handle_i = pcap_open_offline("udp.pcap",	// File name 
 		error_buffer					// Error buffer
@@ -486,31 +441,30 @@ void cap_thread(pcap_t *device, pcap_handler handler)
 	pcap_loop(device, 0, handler, NULL);
 }
 
-
 void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_size, unsigned int id)
 {
-	ex_udp_datagram watch(data_size_packet[id]);
-	
-	pcap_pkthdr *recv_packet_header;
-	unsigned char *recv_packet_data;
-
 	int ret = -1;
 	int backoff = 100;
-	int speed_test = 400;
-	//Sleep((id - 1) * 2000);
+	int speed_test = 100;
 	/* Send data size. Send until ACK is received from client. */
 	packet_mutex[0].lock();
 	while (ret != 0 || packet_sent[0] == false)
 	{
 		packet_mutex[0].unlock();
 		ret = pcap_sendpacket(device, data_size_packet[id], header_size + sizeof(unsigned int));
-		Sleep(speed_test);
+		this_thread::sleep_for(milliseconds(speed_test));
 		speed_test += 400;
+		/* Interface is disconnected. */
+		if (speed_test > 5000)
+		{
+			stdout_mutex.lock();
+			printf("Send via interface with id %d failed.\n", id);
+			stdout_mutex.unlock();
+			return;
+		}
 		packet_mutex[0].lock();	
 	}
 	packet_mutex[0].unlock();
-
-	backoff = speed_test;
 
 	for (int j = 0; j < data_size; j++)
 	{
@@ -522,11 +476,11 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 		if (packet_sent[j + 1] == true)
 		{
 			packet_mutex[j + 1].unlock();
+			packet_send_lock[j].unlock();
 			continue;
 		}
 		packet_mutex[j+1].unlock();
 		backoff = speed_test;
-		bool packet_ack = false;
 
 		/* Sending packet. */
 		while (true)
@@ -543,25 +497,33 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 				stdout_mutex.lock();
 				printf("Sending packet failed, interface has been disconnected!\n");
 				stdout_mutex.unlock();
-				Sleep(2000);
+				this_thread::sleep_for(milliseconds(2000));
+				/* Packet is already sending by other interface  -> send next packet. */
+				if (!packet_send_lock[j].try_lock())
+					break;
 			}
 
-			Sleep(backoff);
-			backoff += 100;
+			this_thread::sleep_for(milliseconds(backoff));
+			backoff += 400;
 
-			/* Client is probably disconnected. */
-			if (backoff > 5000)
+			/* Client or interface is probably disconnected. */
+			if (backoff > 3000)
+			{
+				packet_send_lock[j].unlock();
 				break;
+			}
 			/* Retransmisson */
 			/* Check packet state, it could be already sent by other interfaces. */
 			packet_mutex[j + 1].lock();
 			/* Lock packet again. */
 			if (packet_sent[j + 1] == true)
 			{
+				/* Try sending next packet. */
+				packet_send_lock[j].unlock();
 				packet_mutex[j + 1].unlock();
 				break;
 			}
-			/* Send next packet. */
+			/* Continue sending packet. */
 			else
 			{
 				packet_mutex[j + 1].unlock();
@@ -580,6 +542,7 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 		if (packet_sent[j + 1] == true)
 		{
 			packet_mutex[j + 1].unlock();
+			packet_send_lock[j].unlock();
 			continue;
 		}
 		packet_mutex[j + 1].unlock();
@@ -601,24 +564,33 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 				stdout_mutex.lock();
 				printf("All interfaces has been disconnected, breaking connection!\n");
 				stdout_mutex.unlock();
+				this_thread::sleep_for(milliseconds(2000));
+				/* Packet is already sending by other interface  -> finish send procedure. */
+				if (!packet_send_lock[j].try_lock())
+					break;
 			}
 
-			Sleep(backoff);
-			backoff += 100;
+			this_thread::sleep_for(milliseconds(backoff));
+			backoff += 400;
 
 			/* Client is probably disconnected. */
-			if (backoff > 5000)
+			if (backoff > 3000)
+			{
+				packet_send_lock[j].unlock();
 				break;
+			}
 			/* Retransmisson */
 			/* Check packet state, it could be already sent by other interfaces. */
 			packet_mutex[j + 1].lock();
 			/* Lock packet again. */
 			if (packet_sent[j + 1] == true)
 			{
+				/* Try sending next packet. */
+				packet_send_lock[j].unlock();
 				packet_mutex[j + 1].unlock();
 				break;
 			}
-			/* Send next packet. */
+			/* Continue sending packet. */
 			else
 			{
 				packet_mutex[j + 1].unlock();
@@ -629,90 +601,4 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 }
 
 
-void send_thread2(pcap_t * device, unsigned char **send_data, unsigned int data_size, unsigned int id)
-{
-	ex_udp_datagram watch(send_data[0]);
-	ex_udp_d->change_data_size(sizeof(unsigned int));
 
-	/* Set raw packet data to output buffer size. */
-	unsigned int *d_size = (unsigned int*) ex_udp_d->data;
-	*d_size = htonl(data_size);
-
-	/* Send data size. Send until ACK is received from client. */
-	int ret = -1;
-	ack_buff_mutex.lock();
-	while (ret != 0 && ack_buffer[0] == false)
-	{
-		ack_buff_mutex.unlock();
-		ret = pcap_sendpacket(device, packet_data, sizeof(udp_header) + ex_udp_d->iph->header_length * 4 + sizeof(ethernet_header) + 8);
-		Sleep(100);
-		ack_buff_mutex.lock();
-	}
-	ack_buff_mutex.unlock();
-
-	int block_num = 0;
-	int backoff;
-	int window_pos = id* (packets_num / 2);
-
-	for (int j = 0; j < ceil(float(data_size) / DATAGRAM_DATA_SIZE / BLOCK_SIZE); j++)
-	{
-		backoff = 100;
-		/* Sending block of packets. */
-		bool block_sent = false;
-		while (!block_sent)
-		{
-			block_sent = true;
-			for (int i = window_pos; i < window_pos + BLOCK_SIZE; i++)
-			{
-				/* Last block of packets may not be full. */
-				if (i == id* (packets_num / 2) + data_size)
-					break;
-
-				ack_buff_mutex.lock();
-				if (ack_buffer[i] == false)
-				{
-					ack_buff_mutex.unlock();
-					block_sent = false;
-					backoff += 100;
-					stdout_mutex.lock();
-					printf("Packet : %d not sent.\n", i);
-					stdout_mutex.unlock();
-
-					/* Last packet inside packet buffer. */
-					/* window_pos*(id+1) - real position inside packet buffer. */
-					if(i == packets_num-1)
-						pcap_sendpacket(device, send_data[i-id*packets_num/2], last_packet_total_size);
-					else
-						pcap_sendpacket(device, send_data[i - id*packets_num / 2], total_packet_size);
-				}
-			}
-			Sleep(backoff);
-		}
-		window_pos += BLOCK_SIZE;
-	}
-}
-
-
-//! \brief Calculate the IP header checksum.
-//! \param buf The IP header content.
-//! \param hdr_len The IP header length.
-//! \return The result of the checksum.
-uint16_t ip_checksum(const void *buf, size_t hdr_len)
-{
-	unsigned long sum = 0;
-	const uint16_t *ip1;
-	
-	ip1 = (const uint16_t *) buf;
-	while (hdr_len > 1)
-	{
-		sum += *ip1++;
-		if (sum & 0x80000000)
-			sum = (sum & 0xFFFF) + (sum >> 16);
-		hdr_len -= 2;
-	}
-	
-	while (sum >> 16)
-		sum = (sum & 0xFFFF) + (sum >> 16);
-	
-	return(~sum);
-}

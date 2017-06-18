@@ -128,6 +128,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\include\pcap.h" />
+    <ClInclude Include="Functions.h" />
     <ClInclude Include="protocol_headers.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -68,8 +68,8 @@ typedef struct ex_udp_datagram
 
 		uh = (udp_header*)((unsigned char*)iph + tmp);
 
-		seq_number = (u_long *)((unsigned char*)uh + /*(uh->datagram_length*/ + sizeof(udp_header)/*)*/);
-		data = (unsigned char *)((unsigned char*)uh + /*(uh->datagram_length*/ + sizeof(udp_header)/*)*/ + sizeof(u_long));
+		seq_number = (u_long *)((unsigned char*)uh + sizeof(udp_header));
+		data = (unsigned char *)((unsigned char*)uh + sizeof(udp_header) + sizeof(u_long));
 	}
 
 	ex_udp_datagram(unsigned char *packet_data)
@@ -105,16 +105,3 @@ typedef struct ex_udp_datagram
 	}
 
 } ex_udp_datagram;
-
-/*typedef struct Packet
-{
-	unsigned char *data;
-	mutex mx;
-	bool ack_received;
-
-	Packet(unsigned char *_data)
-	{
-		data = _data;
-		ack_received = false;
-	}
-} Packet;*/
