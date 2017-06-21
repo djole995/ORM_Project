@@ -43,7 +43,7 @@ void make_packets(unsigned char *input_data, unsigned char ***packets, unsigned 
 /* Free dynamically allocated memory. */
 void free_resources();
 
-const int DATAGRAM_DATA_SIZE = 1400;
+const int DATAGRAM_DATA_SIZE = 1465;
 const int INTERFACES_NUMBER = 2;
 const int PORT_NUMBER = 27015;
 
@@ -51,12 +51,12 @@ const int PORT_NUMBER = 27015;
 /* device_handle_out - output device (wi-fi or ethernet adapter). */
 pcap_t* device_handle[INTERFACES_NUMBER];
 
-/* Server and client mac and ip addresses. TODO : Get IP address throught program. */
+/* Server and client mac and ip addresses. */
 unsigned char server_mac_addr[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
-unsigned char client_mac_addr[INTERFACES_NUMBER][6] = { { 0x78, 0x0c, 0xb8, 0xf7, 0x71, 0xa0 }, { 0x00, 0xe0, 0x4c, 0x36, 0x33, 0xf6 } };
-
-unsigned char server_ip_addr[INTERFACES_NUMBER][4] = { { 192, 168, 0, 17 },{ 169, 254, 176, 102 } };
-unsigned char client_ip_addr[INTERFACES_NUMBER][4] = { {10, 81, 2, 93}, { 169, 254, 176, 100 } };
+/* Client and server ip addresses and client mac addresses, user sets when program starts. */
+unsigned char client_mac_addr[INTERFACES_NUMBER][6] = { { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }, { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 } };
+unsigned char server_ip_addr[INTERFACES_NUMBER][4] = { { 0, 0, 0, 0 },{ 0, 0, 0, 0 } };
+unsigned char client_ip_addr[INTERFACES_NUMBER][4] = { {0, 0, 0, 0}, { 0, 0, 0, 0 } };
 
 
 /* Parallel output stream threads. */
@@ -284,13 +284,17 @@ void packet_handler(unsigned char* user, const struct pcap_pkthdr* packet_header
 	u_long ack_num = ntohl(*(rec_packet->seq_number));
 
 	packet_mutex[ack_num].lock();
+	if (packet_sent[ack_num] == false)
+	{
+		if (rec_packet->iph->dst_addr[0] == 169)
+			eth_packet_cnt++;
+		else
+			wifi_packet_cnt++;
+	}
 	packet_sent[ack_num] = true;
 	packet_mutex[ack_num].unlock();
 
-	if (rec_packet->iph->dst_addr[0] == 169)
-		eth_packet_cnt++;
-	else
-		wifi_packet_cnt++;
+	
 }
 
 /* Split data to packets. */
@@ -471,7 +475,7 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 	}
 	packet_mutex[0].unlock();
 
-	for (int j = 0; j < data_size; j++)
+	for (int j = id; j < data_size; j++)
 	{
 		/* Check whether packet is already being sent by other network interface. */
 		if (!packet_send_lock[j].try_lock())
@@ -503,17 +507,18 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 				printf("Sending packet failed, interface has been disconnected!\n");
 				stdout_mutex.unlock();
 				this_thread::sleep_for(milliseconds(4000));
-				
+				packet_send_lock[j].lock();
 			}
 
-			if (ret != -1)
+			/* Interface slow -> allow other interfaces to send same packet. */
+			if(backoff > 1000)
 				packet_send_lock[j].unlock();
 
 			this_thread::sleep_for(milliseconds(backoff));
 			backoff += 400;
-			/* Packet is already sending by other interface  -> send next packet. */
-			if (!packet_send_lock[j].try_lock())
-				break;
+
+			if (backoff > 1400)
+				packet_send_lock[j].lock();
 
 			/* Client or interface is probably disconnected. */
 			if (backoff > 3000 && ret == 0)
@@ -579,8 +584,15 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 				packet_send_lock[j].lock();
 			}
 
+			/* Interface slow -> allow other interfaces to send same packet. */
+			if (backoff > 2000)
+				packet_send_lock[j].unlock();
+
 			this_thread::sleep_for(milliseconds(backoff));
 			backoff += 400;
+
+			if (backoff > 2400)
+				packet_send_lock[j].lock();
 
 			/* Client is probably disconnected. */
 			if (backoff > 3000 && ret == 0)

@@ -70,8 +70,6 @@ void set_filter_exp(char **filter_exp, pcap_if_t *device, unsigned int portNumbe
 	
 	*filter_exp = new char[filter_exp_tmp.size()];
 	strcpy(*filter_exp, filter_exp_tmp.data());
-
-	//printf("%s\n", *filter_exp);
 }
 
 //! \brief Calculate the IP header checksum.
