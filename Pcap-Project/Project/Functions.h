@@ -1,19 +1,12 @@
 #pragma once
-
 #include "protocol_headers.h"
+
+using namespace std;
 
 char* convert_sockaddr_to_string(struct sockaddr* address)
 {
 	return (char *)inet_ntoa(((struct sockaddr_in *) address)->sin_addr);
 }
-
-/*void set_filter_exp(unsigned char **filter_exp, pacp_if_t *device)
-{
-	//26
-	char tmp[] = "udp port 27015 and ip dst ";
-
-	*filter_exp = new unsigned char[]
-}*/
 
 char *get_interface_addr(pcap_if_t *dev)
 {
@@ -30,6 +23,60 @@ char *get_interface_addr(pcap_if_t *dev)
 			}
 		}
 	}
+}
+
+void get_addresses(pcap_if_t *device, unsigned char ip_addr[][4], unsigned char eth_addr[][6], int id)
+{
+	char input[19];
+	unsigned int eth_tmp[6];
+	if (id == 0)
+	{
+		printf("Enter WiFi mac address (format : xx:xx:xx:xx:xx:xx) : \n");
+		scanf("%s", input);
+	}
+	else
+	{
+		printf("Enter ethernet mac address (format : xx:xx:xx:xx:xx:xx) : \n");
+		scanf("%s", input);
+	}
+
+	printf("%s\n", input);
+
+	sscanf(input, "%02x:%02x:%02x:%02x:%02x:%02x", &eth_tmp[0], &eth_tmp[1], &eth_tmp[2], &eth_tmp[3], 
+		&eth_tmp[4], &eth_tmp[5]);
+
+	for (int i = 0; i < 6; i++)
+		eth_addr[id][i] = (unsigned char)eth_tmp[i];
+
+	/*for (int i = 0; i < 6; i++)
+		printf("%hhu ", eth_addr[id][i]);*/
+
+	char *ip_addr_str = get_interface_addr(device);
+	sscanf(ip_addr_str, "%hhu.%hhu.%hhu.%hhu", &ip_addr[id][0], &ip_addr[id][1], &ip_addr[id][2], &ip_addr[id][3]);
+
+	/*printf("wifi\n");
+	for (int i = 0; i < 4; i++)
+		printf("%u ", ip_addr[0][i]);
+
+	printf("eth\n");
+	for (int i = 0; i < 4; i++)
+		printf("%u ", ip_addr[1][i]);*/
+}
+
+void set_filter_exp(char **filter_exp, pcap_if_t *device, unsigned int portNumber)
+{
+	char portNumStr[] = "00000";
+	sprintf(portNumStr, "%u", portNumber);
+	string filter_exp_tmp("udp dst port ");
+
+	filter_exp_tmp += string(portNumStr);
+	filter_exp_tmp += " and ip dst ";
+	filter_exp_tmp += string(get_interface_addr(device));
+	
+	*filter_exp = new char[filter_exp_tmp.size()];
+	strcpy(*filter_exp, filter_exp_tmp.data());
+
+	//printf("%s\n", *filter_exp);
 }
 
 //! \brief Calculate the IP header checksum.

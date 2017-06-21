@@ -43,7 +43,7 @@ void make_packets(unsigned char *input_data, unsigned char ***packets, unsigned 
 /* Free dynamically allocated memory. */
 void free_resources();
 
-const int DATAGRAM_DATA_SIZE = 1400;
+const int DATAGRAM_DATA_SIZE = 1000;
 const int INTERFACES_NUMBER = 2;
 const int PORT_NUMBER = 27015;
 
@@ -51,12 +51,13 @@ const int PORT_NUMBER = 27015;
 /* device_handle_out - output device (wi-fi or ethernet adapter). */
 pcap_t* device_handle[INTERFACES_NUMBER];
 
-unsigned char eth_source_mac_addr[6] = { 0x78, 0x0c, 0xb8, 0xf7, 0x71, 0xa0 };
-unsigned char server_mac_addr[INTERFACES_NUMBER][6] = { { 0x78, 0x0c, 0xb8, 0xf7, 0x71, 0xa0 }, { 0x00, 0xe0, 0x4c, 0x36, 0x33, 0xf6 } };
+/* Server and client mac and ip addresses. TODO : Get IP address throught program. */
 unsigned char client_mac_addr[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+unsigned char server_mac_addr[INTERFACES_NUMBER][6] = { { 0x78, 0x0c, 0xb8, 0xf7, 0x71, 0xa0 }, { 0x00, 0xe0, 0x4c, 0x36, 0x33, 0xf6 } };
 
-unsigned char server_ip_addr[INTERFACES_NUMBER][4] = { {192, 168, 0, 17}, { 169, 254, 176, 100 } };
-unsigned char client_ip_addr[INTERFACES_NUMBER][4] = { { 192, 168, 0, 16 },{ 169, 254, 176, 102 } };
+unsigned char client_ip_addr[INTERFACES_NUMBER][4] = { { 192, 168, 0, 10 },{ 169, 254, 176, 101 } };
+unsigned char server_ip_addr[INTERFACES_NUMBER][4] = { {10, 81, 2, 93}, { 169, 254, 176, 100 } };
+
 
 /* Parallel output stream threads. */
 thread *send_threads[INTERFACES_NUMBER];
@@ -112,7 +113,7 @@ int main()
 	unsigned int netmask;
 	int send_option;
 	/* Server ethernet interface filter exp and  Server wifi interface ip filter exp.  */
-	char *filter_exp[INTERFACES_NUMBER] = {"udp port 27015 and ip dst 192.168.0.17", "udp port 27015 and ip dst 169.254.176.100" };
+	char *filter_exp[INTERFACES_NUMBER] = {"udp port 27015 and ip dst 10.81.2.93", "udp port 27015 and ip dst 169.254.176.100" };
 	struct bpf_program fcode[INTERFACES_NUMBER];
 	
 	/**************************************************************/
@@ -195,7 +196,24 @@ int main()
 			netmask = 0;
 		else
 			netmask = ((struct sockaddr_in *)(device->addresses->netmask))->sin_addr.s_addr;
+
 		
+		get_addresses(device, server_ip_addr, server_mac_addr, j);
+		set_filter_exp(&filter_exp[j], device, PORT_NUMBER);
+
+		printf("wifi\n");
+		for (int i = 0; i < 4; i++)
+			printf("%hhu ", server_ip_addr[0][i]);
+
+		for (int i = 0; i < 6; i++)
+			printf("%x ", server_mac_addr[0][i]);
+
+		printf("eth\n");
+		for (int i = 0; i < 4; i++)
+			printf("%hhu ", server_ip_addr[1][i]);
+
+		for (int i = 0; i < 6; i++)
+			printf("%x ", server_mac_addr[1][i]);
 
 		// Compile the filter    
 		if (pcap_compile(device_handle[j], &fcode[j], filter_exp[j], 1, netmask) < 0)
@@ -443,9 +461,10 @@ void cap_thread(pcap_t *device, pcap_handler handler)
 
 void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_size, unsigned int id)
 {
+	ex_udp_datagram ex_udp_d(send_data[0]);
 	int ret = -1;
 	int backoff = 100;
-	int speed_test = 100;
+	int speed_test = 1000;
 	/* Send data size. Send until ACK is received from client. */
 	packet_mutex[0].lock();
 	while (ret != 0 || packet_sent[0] == false)
