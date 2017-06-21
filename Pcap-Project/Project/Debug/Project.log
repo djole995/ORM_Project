@@ -1,7 +1,7 @@
 ﻿  vezba9.cpp
-d:\orm_project\pcap-project\project\functions.h(90): warning C4244: 'return': conversion from 'unsigned long' to 'uint16_t', possible loss of data
-d:\orm_project\pcap-project\project\functions.h(98): warning C4018: '<': signed/unsigned mismatch
-d:\orm_project\pcap-project\project\functions.h(111): warning C4018: '<': signed/unsigned mismatch
+d:\orm_project\pcap-project\project\functions.h(98): warning C4244: 'return': conversion from 'unsigned long' to 'uint16_t', possible loss of data
+d:\orm_project\pcap-project\project\functions.h(106): warning C4018: '<': signed/unsigned mismatch
+d:\orm_project\pcap-project\project\functions.h(119): warning C4018: '<': signed/unsigned mismatch
 d:\orm_project\pcap-project\project\vezba9.cpp(109): warning C4101: 'sentBytes': unreferenced local variable
 d:\orm_project\pcap-project\project\vezba9.cpp(300): warning C4244: '=': conversion from 'double' to 'unsigned int', possible loss of data
 d:\orm_project\pcap-project\project\vezba9.cpp(313): warning C4018: '<': signed/unsigned mismatch

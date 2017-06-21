@@ -25,19 +25,25 @@ char *get_interface_addr(pcap_if_t *dev)
 	}
 }
 
-void get_addresses(pcap_if_t *device, unsigned char ip_addr[][4], unsigned char eth_addr[][6], int id)
+void get_addresses(pcap_if_t *device, unsigned char ip_addr[][4], unsigned char eth_addr[][6], 
+	unsigned char server_ip_addr[][4],  int id)
 {
 	char input[19];
+	char server_addr[16];
 	unsigned int eth_tmp[6];
 	if (id == 0)
 	{
-		printf("Enter WiFi mac address (format : xx:xx:xx:xx:xx:xx) : \n");
+		printf("Enter client WiFi mac address (format : xx:xx:xx:xx:xx:xx) : \n");
 		scanf("%s", input);
+		printf("Enter server WiFi IP address (format : xxx.xxx.xxx.xxx) : \n");
+		scanf("%s", server_addr);
 	}
 	else
 	{
-		printf("Enter ethernet mac address (format : xx:xx:xx:xx:xx:xx) : \n");
+		printf("Enter client ethernet mac address (format : xx:xx:xx:xx:xx:xx) : \n");
 		scanf("%s", input);
+		printf("Enter server ethernet IP address (format : xxx.xxx.xxx.xxx) : \n");
+		scanf("%s", server_addr);
 	}
 
 	sscanf(input, "%02x:%02x:%02x:%02x:%02x:%02x", &eth_tmp[0], &eth_tmp[1], &eth_tmp[2], &eth_tmp[3], 
@@ -48,6 +54,8 @@ void get_addresses(pcap_if_t *device, unsigned char ip_addr[][4], unsigned char 
 
 	char *ip_addr_str = get_interface_addr(device);
 	sscanf(ip_addr_str, "%hhu.%hhu.%hhu.%hhu", &ip_addr[id][0], &ip_addr[id][1], &ip_addr[id][2], &ip_addr[id][3]);
+	sscanf(server_addr, "%hhu.%hhu.%hhu.%hhu", &server_ip_addr[id][0], &server_ip_addr[id][1], 
+		&server_ip_addr[id][2], &server_ip_addr[id][3]);
 }
 
 void set_filter_exp(char **filter_exp, pcap_if_t *device, unsigned int portNumber)

@@ -52,11 +52,11 @@ const int PORT_NUMBER = 27015;
 pcap_t* device_handle[INTERFACES_NUMBER];
 
 /* Server and client mac and ip addresses. TODO : Get IP address throught program. */
-unsigned char client_mac_addr[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
-unsigned char server_mac_addr[INTERFACES_NUMBER][6] = { { 0x78, 0x0c, 0xb8, 0xf7, 0x71, 0xa0 }, { 0x00, 0xe0, 0x4c, 0x36, 0x33, 0xf6 } };
+unsigned char server_mac_addr[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+unsigned char client_mac_addr[INTERFACES_NUMBER][6] = { { 0x78, 0x0c, 0xb8, 0xf7, 0x71, 0xa0 }, { 0x00, 0xe0, 0x4c, 0x36, 0x33, 0xf6 } };
 
-unsigned char client_ip_addr[INTERFACES_NUMBER][4] = { { 192, 168, 0, 17 },{ 169, 254, 176, 102 } };
-unsigned char server_ip_addr[INTERFACES_NUMBER][4] = { {10, 81, 2, 93}, { 169, 254, 176, 100 } };
+unsigned char server_ip_addr[INTERFACES_NUMBER][4] = { { 192, 168, 0, 17 },{ 169, 254, 176, 102 } };
+unsigned char client_ip_addr[INTERFACES_NUMBER][4] = { {10, 81, 2, 93}, { 169, 254, 176, 100 } };
 
 
 /* Parallel output stream threads. */
@@ -198,7 +198,7 @@ int main()
 			netmask = ((struct sockaddr_in *)(device->addresses->netmask))->sin_addr.s_addr;
 
 		
-		get_addresses(device, server_ip_addr, server_mac_addr, j);
+		get_addresses(device, client_ip_addr, client_mac_addr, server_ip_addr, j);
 		set_filter_exp(&filter_exp[j], device, PORT_NUMBER);
 
 		// Compile the filter    
@@ -223,8 +223,8 @@ int main()
 	{
 		/* Split file data into packes of DATAGRAM_DATA_SIZE size. */
 		make_packets(file_buff, &packets[i], packet_data, packet_header, file_length, DATAGRAM_DATA_SIZE);
-		set_addresses(packets[i], packets_num, server_mac_addr[i], client_mac_addr, server_ip_addr[i], client_ip_addr[i]);
-		set_addresses(&data_size_packet[i], 1, server_mac_addr[i], client_mac_addr, server_ip_addr[i], client_ip_addr[i]);
+		set_addresses(packets[i], packets_num, client_mac_addr[i], server_mac_addr, client_ip_addr[i], server_ip_addr[i]);
+		set_addresses(&data_size_packet[i], 1, client_mac_addr[i], server_mac_addr, client_ip_addr[i], server_ip_addr[i]);
 		calculate_checksum(packets[i], packets_num);
 		calculate_checksum(&data_size_packet[i], 1);
 	}
@@ -232,7 +232,7 @@ int main()
 	for (int i = 0; i < INTERFACES_NUMBER; i++)
 	{
 		/* Set addresses and calculate checksum for data size packet. */
-		set_addresses(&data_size_packet[i], 1, server_mac_addr[i], client_mac_addr, server_ip_addr[i], client_ip_addr[i]);
+		set_addresses(&data_size_packet[i], 1, client_mac_addr[i], server_mac_addr, client_ip_addr[i], server_ip_addr[i]);
 		calculate_checksum(&data_size_packet[i], 1);
 	}
 
