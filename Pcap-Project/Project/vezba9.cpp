@@ -43,7 +43,7 @@ void make_packets(unsigned char *input_data, unsigned char ***packets, unsigned 
 /* Free dynamically allocated memory. */
 void free_resources();
 
-const int DATAGRAM_DATA_SIZE = 1000;
+const int DATAGRAM_DATA_SIZE = 1400;
 const int INTERFACES_NUMBER = 2;
 const int PORT_NUMBER = 27015;
 
@@ -55,7 +55,7 @@ pcap_t* device_handle[INTERFACES_NUMBER];
 unsigned char client_mac_addr[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
 unsigned char server_mac_addr[INTERFACES_NUMBER][6] = { { 0x78, 0x0c, 0xb8, 0xf7, 0x71, 0xa0 }, { 0x00, 0xe0, 0x4c, 0x36, 0x33, 0xf6 } };
 
-unsigned char client_ip_addr[INTERFACES_NUMBER][4] = { { 192, 168, 0, 10 },{ 169, 254, 176, 101 } };
+unsigned char client_ip_addr[INTERFACES_NUMBER][4] = { { 192, 168, 0, 17 },{ 169, 254, 176, 102 } };
 unsigned char server_ip_addr[INTERFACES_NUMBER][4] = { {10, 81, 2, 93}, { 169, 254, 176, 100 } };
 
 
@@ -200,20 +200,6 @@ int main()
 		
 		get_addresses(device, server_ip_addr, server_mac_addr, j);
 		set_filter_exp(&filter_exp[j], device, PORT_NUMBER);
-
-		printf("wifi\n");
-		for (int i = 0; i < 4; i++)
-			printf("%hhu ", server_ip_addr[0][i]);
-
-		for (int i = 0; i < 6; i++)
-			printf("%x ", server_mac_addr[0][i]);
-
-		printf("eth\n");
-		for (int i = 0; i < 4; i++)
-			printf("%hhu ", server_ip_addr[1][i]);
-
-		for (int i = 0; i < 6; i++)
-			printf("%x ", server_mac_addr[1][i]);
 
 		// Compile the filter    
 		if (pcap_compile(device_handle[j], &fcode[j], filter_exp[j], 1, netmask) < 0)
@@ -423,7 +409,7 @@ void initiallize(struct pcap_pkthdr** packet_header, unsigned char** packet_data
 	FILE *data_file;
 	char error_buffer[PCAP_ERRBUF_SIZE];
 
-	data_file = fopen("dog5.wav", "rb+");
+	data_file = fopen("sample_and_hold_4x4.png", "rb+");
 
 	if (data_file == NULL)
 	{
@@ -464,7 +450,7 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 	ex_udp_datagram ex_udp_d(send_data[0]);
 	int ret = -1;
 	int backoff = 100;
-	int speed_test = 1000;
+	int speed_test = 100;
 	/* Send data size. Send until ACK is received from client. */
 	packet_mutex[0].lock();
 	while (ret != 0 || packet_sent[0] == false)
@@ -474,7 +460,7 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 		this_thread::sleep_for(milliseconds(speed_test));
 		speed_test += 400;
 		/* Interface is disconnected. */
-		if (speed_test > 5000)
+		if (speed_test > 20000)
 		{
 			stdout_mutex.lock();
 			printf("Send via interface with id %d failed.\n", id);
@@ -516,17 +502,21 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 				stdout_mutex.lock();
 				printf("Sending packet failed, interface has been disconnected!\n");
 				stdout_mutex.unlock();
-				this_thread::sleep_for(milliseconds(2000));
-				/* Packet is already sending by other interface  -> send next packet. */
-				if (!packet_send_lock[j].try_lock())
-					break;
+				this_thread::sleep_for(milliseconds(4000));
+				
 			}
+
+			if (ret != -1)
+				packet_send_lock[j].unlock();
 
 			this_thread::sleep_for(milliseconds(backoff));
 			backoff += 400;
+			/* Packet is already sending by other interface  -> send next packet. */
+			if (!packet_send_lock[j].try_lock())
+				break;
 
 			/* Client or interface is probably disconnected. */
-			if (backoff > 3000)
+			if (backoff > 3000 && ret == 0)
 			{
 				packet_send_lock[j].unlock();
 				break;
@@ -554,23 +544,25 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 	/* Checking whether other interface was in sending packet procedure when disconnected. */
 	for (int j = 0; j < data_size; j++)
 	{
-		if (!packet_send_lock[j].try_lock())
-			continue;
+		backoff = speed_test;
 
+		/* Packet already sent. */
 		packet_mutex[j + 1].lock();
 		if (packet_sent[j + 1] == true)
 		{
 			packet_mutex[j + 1].unlock();
-			packet_send_lock[j].unlock();
 			continue;
 		}
 		packet_mutex[j + 1].unlock();
+
+		packet_send_lock[j].lock();
 
 		backoff = speed_test;
 
 		/* Sending packet. */
 		while (true)
 		{
+
 			/* Last packet inside packet buffer. */
 			if (j == packets_num - 1)
 				ret = pcap_sendpacket(device, send_data[j], last_packet_total_size);
@@ -581,19 +573,17 @@ void send_thread(pcap_t * device, unsigned char **send_data, unsigned int data_s
 			{
 				packet_send_lock[j].unlock();
 				stdout_mutex.lock();
-				printf("All interfaces has been disconnected, breaking connection!\n");
+				printf("Sending packet failed, interface has been disconnected\n");
 				stdout_mutex.unlock();
-				this_thread::sleep_for(milliseconds(2000));
-				/* Packet is already sending by other interface  -> finish send procedure. */
-				if (!packet_send_lock[j].try_lock())
-					break;
+				this_thread::sleep_for(milliseconds(4000));
+				packet_send_lock[j].lock();
 			}
 
 			this_thread::sleep_for(milliseconds(backoff));
 			backoff += 400;
 
 			/* Client is probably disconnected. */
-			if (backoff > 3000)
+			if (backoff > 3000 && ret == 0)
 			{
 				packet_send_lock[j].unlock();
 				break;

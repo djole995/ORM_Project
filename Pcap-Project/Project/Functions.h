@@ -40,27 +40,14 @@ void get_addresses(pcap_if_t *device, unsigned char ip_addr[][4], unsigned char 
 		scanf("%s", input);
 	}
 
-	printf("%s\n", input);
-
 	sscanf(input, "%02x:%02x:%02x:%02x:%02x:%02x", &eth_tmp[0], &eth_tmp[1], &eth_tmp[2], &eth_tmp[3], 
 		&eth_tmp[4], &eth_tmp[5]);
 
 	for (int i = 0; i < 6; i++)
 		eth_addr[id][i] = (unsigned char)eth_tmp[i];
 
-	/*for (int i = 0; i < 6; i++)
-		printf("%hhu ", eth_addr[id][i]);*/
-
 	char *ip_addr_str = get_interface_addr(device);
 	sscanf(ip_addr_str, "%hhu.%hhu.%hhu.%hhu", &ip_addr[id][0], &ip_addr[id][1], &ip_addr[id][2], &ip_addr[id][3]);
-
-	/*printf("wifi\n");
-	for (int i = 0; i < 4; i++)
-		printf("%u ", ip_addr[0][i]);
-
-	printf("eth\n");
-	for (int i = 0; i < 4; i++)
-		printf("%u ", ip_addr[1][i]);*/
 }
 
 void set_filter_exp(char **filter_exp, pcap_if_t *device, unsigned int portNumber)

@@ -1,15 +1,15 @@
 ﻿  vezba9.cpp
-d:\orm_project\pcap-project\project\functions.h(103): warning C4244: 'return': conversion from 'unsigned long' to 'uint16_t', possible loss of data
+d:\orm_project\pcap-project\project\functions.h(90): warning C4244: 'return': conversion from 'unsigned long' to 'uint16_t', possible loss of data
+d:\orm_project\pcap-project\project\functions.h(98): warning C4018: '<': signed/unsigned mismatch
 d:\orm_project\pcap-project\project\functions.h(111): warning C4018: '<': signed/unsigned mismatch
-d:\orm_project\pcap-project\project\functions.h(124): warning C4018: '<': signed/unsigned mismatch
 d:\orm_project\pcap-project\project\vezba9.cpp(109): warning C4101: 'sentBytes': unreferenced local variable
-d:\orm_project\pcap-project\project\vezba9.cpp(314): warning C4244: '=': conversion from 'double' to 'unsigned int', possible loss of data
-d:\orm_project\pcap-project\project\vezba9.cpp(327): warning C4018: '<': signed/unsigned mismatch
-d:\orm_project\pcap-project\project\vezba9.cpp(381): warning C4018: '<': signed/unsigned mismatch
+d:\orm_project\pcap-project\project\vezba9.cpp(300): warning C4244: '=': conversion from 'double' to 'unsigned int', possible loss of data
+d:\orm_project\pcap-project\project\vezba9.cpp(313): warning C4018: '<': signed/unsigned mismatch
+d:\orm_project\pcap-project\project\vezba9.cpp(367): warning C4018: '<': signed/unsigned mismatch
+d:\orm_project\pcap-project\project\vezba9.cpp(380): warning C4018: '<': signed/unsigned mismatch
 d:\orm_project\pcap-project\project\vezba9.cpp(394): warning C4018: '<': signed/unsigned mismatch
-d:\orm_project\pcap-project\project\vezba9.cpp(408): warning C4018: '<': signed/unsigned mismatch
-d:\orm_project\pcap-project\project\vezba9.cpp(488): warning C4018: '<': signed/unsigned mismatch
-d:\orm_project\pcap-project\project\vezba9.cpp(555): warning C4018: '<': signed/unsigned mismatch
+d:\orm_project\pcap-project\project\vezba9.cpp(474): warning C4018: '<': signed/unsigned mismatch
+d:\orm_project\pcap-project\project\vezba9.cpp(545): warning C4018: '<': signed/unsigned mismatch
 d:\orm_project\pcap-project\project\functions.h(26): warning C4715: 'get_interface_addr': not all control paths return a value
 vezba9.obj : warning LNK4075: ignoring '/EDITANDCONTINUE' due to '/INCREMENTAL:NO' specification
   Project.vcxproj -> D:\ORM_Project\Pcap-Project\Project\.\Debug\Project.exe
